@@ -80,6 +80,15 @@ unsigned long rescanTimer = 0;
 #define RESCAN_INTERVAL 30000        // ms between searches for missing modules
 unsigned long essUnderTimer = 0, essOverTimer = 0; // separate timers for the ESS check (500 ms block)
 
+//////// NEW: Victron-style CVL control ////////
+#define CVL_DOWN_RATE 0.10f   // V per second lowering as long as the highest cell is above the charge voltage
+#define CVL_UP_RATE   0.01f   // V per second raising again when there is room (slow, prevents hunting)
+#define CVL_BAND      0.010f  // V per cell: raise only when the highest cell is this far below the target
+#define OV_RELEASE    0.050f  // V per cell: CCL=0 due to overvoltage is released below OverV - this value
+float cvlActual = 0.0f;       // V, the CVL sent to Victron
+unsigned long cvlTimer = 0;
+bool overVoltLatch = false;   // highest cell >= OverVSetpoint: CCL = 0 (chargers off)
+
 //Curent filter//
 float filterFrequency = 5.0 ;
 LowPassFilter lowpassFilter( filterFrequency );
@@ -324,6 +333,7 @@ void loadNewSettings()
   settings.ScaleLimits = 1;       // scale CCL/DCL with strings online
   settings.balanceStart = 0.015f; // start balancing at > 15 mV difference
   settings.AutoTopology = 1;      // at every start: count modules = expected number
+  settings.CVLControl = 1;        // Victron style: lower CVL, CCL stays open until OverVSetpoint
 }
 
 /*
@@ -385,22 +395,30 @@ void setup()
   analogWriteFrequency(OUT8, pwmfreq);
 
   EEPROM.get(0, settings);
-  if (settings.version == EEPROM_VERSION_V2 || settings.version == EEPROM_VERSION_VIC1 || settings.version == EEPROM_VERSION_VIC2 || settings.version == EEPROM_VERSION_VIC3)
+  uint8_t v = settings.version;
+  if (v == EEPROM_VERSION_V2 || v == EEPROM_VERSION_VIC1 || v == EEPROM_VERSION_VIC2 || v == EEPROM_VERSION_VIC3 || v == EEPROM_VERSION_VIC4)
   {
-    // currents are now PER STRING (were the total for the battery): set new defaults
-    settings.chargecurrentmax = 250;  // 25 A per string
-    settings.chargecurrent2max = 125; // 12.5 A per string
-    settings.chargecurrentend = 25;   // 2.5 A per string
-    settings.discurrentmax = 250;     // 25 A per string
     // settings from TeslaBMSV2 / earlier TeslaBMS_Victron: keep them,
-    // only add the new fields
-    if (settings.version == EEPROM_VERSION_V2) loadNewSettings();
-    if (settings.version != EEPROM_VERSION_VIC2)
+    // only give the new fields a default value
+    if (v == EEPROM_VERSION_V2) loadNewSettings();
+    if (v == EEPROM_VERSION_V2 || v == EEPROM_VERSION_VIC1)
     {
       settings.balanceHyst = 0.005f;   // stop at 5 mV
       settings.balanceStart = 0.015f;  // start at > 15 mV
     }
-    if (settings.version != EEPROM_VERSION_VIC3) settings.AutoTopology = 1; // count modules at every start
+    if (v == EEPROM_VERSION_V2 || v == EEPROM_VERSION_VIC1 || v == EEPROM_VERSION_VIC2)
+    {
+      settings.AutoTopology = 1;       // count modules at every start
+    }
+    if (v != EEPROM_VERSION_VIC4)
+    {
+      // currents are now PER STRING (were the total for the battery)
+      settings.chargecurrentmax = 250;  // 25 A per string
+      settings.chargecurrent2max = 125; // 12.5 A per string
+      settings.chargecurrentend = 25;   // 2.5 A per string
+      settings.discurrentmax = 250;     // 25 A per string
+    }
+    settings.CVLControl = 1;           // Victron-style CVL control
     settings.version = EEPROM_VERSION;
     EEPROM.put(0, settings);
   }
@@ -410,6 +428,7 @@ void setup()
   }
   if (settings.ScaleLimits > 1) settings.ScaleLimits = 1;
   if (settings.AutoTopology > 1) settings.AutoTopology = 1;
+  if (settings.CVLControl > 1) settings.CVLControl = 1;
   if (!(settings.balanceStart >= 0.002f && settings.balanceStart <= 0.5f)) settings.balanceStart = 0.015f;
 
   Can0.begin(settings.canSpeed);
@@ -1072,6 +1091,7 @@ void loop()
     }
     updateSOC();
     currentlimit();
+    cvlControl();
 
     if (settings.ESSmode == 1 && settings.ChargerDirect == 0 && CanOnRev == true)
     {
@@ -1273,6 +1293,14 @@ void printbmsstat()
   SERIALCONSOLE.print(bms.getModulesOnline());
   SERIALCONSOLE.print("/");
   SERIALCONSOLE.print(bms.getExpectedModules());
+  SERIALCONSOLE.print("  CVL: ");
+  SERIALCONSOLE.print(cvlActual, 1);
+  SERIALCONSOLE.print("V  CCL: ");
+  SERIALCONSOLE.print(chargecurrent * 0.1, 1);
+  SERIALCONSOLE.print("A  DCL: ");
+  SERIALCONSOLE.print(discurrent * 0.1, 1);
+  SERIALCONSOLE.print("A");
+  if (overVoltLatch) SERIALCONSOLE.print("  OVERVOLTAGE: CCL=0");
   if (moduleAlarm) SERIALCONSOLE.print("  MODULE ALARM");
   else if (moduleWarning) SERIALCONSOLE.print("  MODULE WARNING");
   SERIALCONSOLE.println();
@@ -1924,16 +1952,10 @@ void VEcan() //communication with Victron system over CAN
 {
   msg.id  = 0x351;
   msg.len = 8;
-  if (storagemode == 0)
-  {
-    msg.buf[0] = lowByte(uint16_t((settings.ChargeVsetpoint * settings.Scells ) * 10));
-    msg.buf[1] = highByte(uint16_t((settings.ChargeVsetpoint * settings.Scells ) * 10));
-  }
-  else
-  {
-    msg.buf[0] = lowByte(uint16_t((settings.StoreVsetpoint * settings.Scells ) * 10));
-    msg.buf[1] = highByte(uint16_t((settings.StoreVsetpoint * settings.Scells ) * 10));
-  }
+  // NEW: CVL from cvlControl() (0.1 V), lowered in a controlled way when a cell runs ahead
+  if (cvlActual <= 0.0f) cvlControl();
+  msg.buf[0] = lowByte(uint16_t(cvlActual * 10));
+  msg.buf[1] = highByte(uint16_t(cvlActual * 10));
   msg.buf[2] = lowByte(chargecurrent);
   msg.buf[3] = highByte(chargecurrent);
   msg.buf[4] = lowByte(discurrent );
@@ -2223,6 +2245,12 @@ void menu()
 
       case 'a': // auto-detect at startup on/off
         settings.AutoTopology = !settings.AutoTopology;
+        menuload = 1;
+        incomingByte = 'm';
+        break;
+
+      case 'v': // CVL control on/off
+        settings.CVLControl = !settings.CVLControl;
         menuload = 1;
         incomingByte = 'm';
         break;
@@ -2957,6 +2985,8 @@ case 'r':  //r for reset
         SERIALCONSOLE.print("t - Delay warning -> alarm when a string is missing : ");
         SERIALCONSOLE.print(settings.ModuleAlarmDelay);
         SERIALCONSOLE.println(" s");
+        SERIALCONSOLE.print("v - Victron CVL control (lower CVL 0.1V/s, CCL=0 only at OverV) : ");
+        SERIALCONSOLE.println(settings.CVLControl ? "On" : "Off (old: CCL taper, fixed CVL)");
         SERIALCONSOLE.print("s - Scale CCL/DCL with strings online : ");
         SERIALCONSOLE.println(settings.ScaleLimits ? "On" : "Off");
         SERIALCONSOLE.println("q - Go back to menu");
@@ -3675,6 +3705,55 @@ void handleVictronLynx()
   }
 }
 
+/*
+  NEW: Victron-style CVL control (settings.CVLControl = 1).
+  - Normal: CVL = ChargeVsetpoint x Scells (storage mode: StoreVsetpoint x Scells).
+  - As soon as the highest cell is above ChargeVsetpoint, the CVL drops by at most
+    CVL_DOWN_RATE (0.1 V/s) to (battery voltage - excess of that cell), so that this
+    cell goes back to the target. The Victron chargers then neatly hold the
+    voltage; the CCL stays open.
+  - Is the highest cell CVL_BAND below the target again, the CVL rises slowly (CVL_UP_RATE).
+  - Lower limit: (ChargeVsetpoint - ChargeHys) x Scells, upper limit: ChargeVsetpoint x Scells.
+  - CCL = 0 only at real overvoltage (OverVSetpoint, see currentlimit()).
+*/
+void cvlControl()
+{
+  float cellTarget = (storagemode == 1) ? settings.StoreVsetpoint : settings.ChargeVsetpoint;
+  float cvlMax = cellTarget * settings.Scells;
+  float cvlMin = (cellTarget - settings.ChargeHys) * settings.Scells;
+
+  unsigned long now = millis();
+  float dt = (cvlTimer == 0) ? 0.0f : (now - cvlTimer) / 1000.0f;
+  cvlTimer = now;
+  if (dt > 2.0f) dt = 2.0f;
+
+  if (settings.CVLControl == 0 || cvlActual <= 0.0f || bms.getStringsOnline() == 0)
+  {
+    cvlActual = cvlMax; // fixed CVL (original behaviour) / start value
+  }
+  else
+  {
+    float hc = bms.getHighCellVolt();
+    if (hc > cellTarget)
+    {
+      // goal: battery voltage minus the excess of the highest cell, so that this cell
+      // goes back to the target. Never lower further than that (no needless collapse).
+      float cvlGoal = bms.getPackVoltage() - (hc - cellTarget);
+      if (cvlActual > cvlGoal)
+      {
+        cvlActual -= CVL_DOWN_RATE * dt;
+        if (cvlActual < cvlGoal) cvlActual = cvlGoal;
+      }
+    }
+    else if (hc < cellTarget - CVL_BAND)
+    {
+      cvlActual += CVL_UP_RATE * dt;
+    }
+  }
+  if (cvlActual > cvlMax) cvlActual = cvlMax;
+  if (cvlActual < cvlMin) cvlActual = cvlMin;
+}
+
 void currentlimit()
 {
   if (bmsstatus == Error)
@@ -3714,11 +3793,17 @@ void currentlimit()
       discurrent = 0;
       chargecurrent = 0;
     }
-    if (bms.getHighCellVolt() > settings.OverVSetpoint)
+    // NEW: real overvoltage (default 4.20 V per cell) -> CCL = 0, the signal for Victron
+    // to switch off all chargers. Released only when the highest cell is OV_RELEASE lower again.
+    if (bms.getHighCellVolt() >= settings.OverVSetpoint)
     {
-      chargecurrent = 0;
+      overVoltLatch = true;
     }
-    if (bms.getHighCellVolt() > settings.OverVSetpoint)
+    else if (bms.getHighCellVolt() < settings.OverVSetpoint - OV_RELEASE)
+    {
+      overVoltLatch = false;
+    }
+    if (overVoltLatch)
     {
       chargecurrent = 0;
     }
@@ -3756,8 +3841,12 @@ void currentlimit()
         {
           chargecurrent = chargecurrent - map(bms.getLowTemperature(), settings.UnderTSetpoint, settings.ChargeTSetpoint, settings.chargecurrentmax, 0);
         }
-        //Voltagee based///
-        if (storagemode == 1)
+        //Voltagee based/// (only without CVL control; with CVL control the CVL takes care of it)
+        if (settings.CVLControl == 1)
+        {
+          // no CCL taper: the CVL is lowered in cvlControl()
+        }
+        else if (storagemode == 1)
         {
           if (bms.getHighCellVolt() > (settings.StoreVsetpoint - settings.ChargeHys))
           {
@@ -3779,8 +3868,12 @@ void currentlimit()
         {
           chargecurrent = chargecurrent - map(bms.getLowTemperature(), settings.UnderTSetpoint, settings.ChargeTSetpoint, settings.chargecurrent2max, 0);
         }
-        //Voltagee based///
-        if (storagemode == 1)
+        //Voltagee based/// (only without CVL control; with CVL control the CVL takes care of it)
+        if (settings.CVLControl == 1)
+        {
+          // no CCL taper: the CVL is lowered in cvlControl()
+        }
+        else if (storagemode == 1)
         {
           if (bms.getHighCellVolt() > (settings.StoreVsetpoint - settings.ChargeHys))
           {

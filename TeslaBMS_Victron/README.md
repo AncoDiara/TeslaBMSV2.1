@@ -43,7 +43,7 @@ Modules are grouped into **strings** (modules in series), and the strings are co
 
 | CAN ID | Content |
 |---|---|
-| 0x351 | CVL (Scells × charge voltage), CCL, DCL (per string × strings online), discharge voltage |
+| 0x351 | CVL (controlled, see below), CCL, DCL (per string × strings online), discharge voltage |
 | 0x355 | SOC, SOH, SOC 0.01 % (fixed: was a factor 10 too low) |
 | 0x356 | Pack voltage (average of the complete strings), current, temperature |
 | 0x35A | Alarms/warnings, incl. **BMS internal** (byte 2/6, 0x40) when a string is missing |
@@ -60,16 +60,28 @@ Modules are grouped into **strings** (modules in series), and the strings are co
 - CCL/DCL are scaled with strings online / strings total (can be switched off: menu `m` → `s`)
 - every 30 s the missing modules are searched for again; a module that lost its address after a power interruption gets its old address (= the right string) back
 
-## Charge and discharge current (CCL/DCL)
+## Charge control: CVL, CCL and DCL (Victron style)
 
-The current settings are **per string** (per pack at 24 V):
+**CCL/DCL** are set **per string** (per pack at 24 V):
 
 - default 25 A charge and 25 A discharge per string (menu `e` → `3`, menu `b` → `8`)
-- CCL/DCL to Victron = value per string × number of strings online (with 5 packs: 125 A)
-- taper while charging: from `ChargeVsetpoint − ChargeHys` (default 3.90 V) the CCL decreases linearly
-  towards the end current per string (default 2.5 A) at `ChargeVsetpoint` (4.10 V); above that 0 A
-- fixed: in TeslaBMSV2 the taper could wrap around to a huge CCL (~6500 A) when a cell
-  rose above `ChargeVsetpoint`, because the current was stored as an unsigned number
+- sent to Victron: value per string × number of strings online (with 5 packs: 125 A)
+- the CCL is **not** tapered by cell voltage. It only goes to **0 at real overvoltage**:
+  highest cell ≥ `OverVSetpoint` (default 4.20 V) – the signal for Victron to switch off all chargers.
+  Released when the highest cell is back below 4.15 V.
+- fixed: in TeslaBMSV2 the taper could wrap around to a huge CCL (~6500 A), because the current
+  was stored as an unsigned number
+
+**CVL** is controlled the way Victron systems expect:
+
+- normal: CVL = `ChargeVsetpoint` × Scells (default 4.10 V × 6 = 24.6 V; storage mode: `StoreVsetpoint`)
+- as soon as the highest cell rises above `ChargeVsetpoint`, the CVL drops by at most **0.1 V per second**,
+  towards *battery voltage − excess of that cell*, so the chargers hold the voltage neatly and that cell
+  stays at the target
+- when the highest cell is more than 10 mV below the target again, the CVL rises slowly (0.01 V/s)
+- lower limit: (`ChargeVsetpoint` − `ChargeHys`) × Scells
+- can be switched off (old behaviour: fixed CVL, CCL taper): menu `m` → `v`
+- the status line in the serial monitor shows CVL, CCL and DCL
 
 ## Balancing
 
@@ -94,7 +106,7 @@ Passive (bleed resistors in the Tesla module), per string, per cell:
 Open the menu with `s` in the serial monitor (115200 baud).
 
 - `b` – Battery Settings (Scells, Pstrings, capacity **per string**, balancing)
-- `m` – **Modules & Strings** (new): overview per string, `a` auto-detect, `f` search again, `r` renumber, `t` alarm delay, `s` CCL/DCL scaling
+- `m` – **Modules & Strings** (new): overview per string, `a` auto-detect, `f` search again, `r` renumber, `t` alarm delay, `v` CVL control, `s` CCL/DCL scaling
 - `q` – back / save (EEPROM)
 
 Settings from TeslaBMSV2 are taken over automatically (EEPROM migration); only the new fields get defaults.

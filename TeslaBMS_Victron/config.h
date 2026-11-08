@@ -33,7 +33,8 @@
 
 #define MAX_MODULE_ADDR     0x3E
 
-#define EEPROM_VERSION      0x18    //update any time EEPROM struct below is changed.
+#define EEPROM_VERSION      0x19    //update any time EEPROM struct below is changed.
+#define EEPROM_VERSION_VIC4 0x18    //TeslaBMS_Victron without CVL control: is migrated
 #define EEPROM_VERSION_VIC3 0x17    //TeslaBMS_Victron with total currents: is migrated to currents per string
 #define EEPROM_VERSION_VIC2 0x16    //TeslaBMS_Victron without AutoTopology: is migrated
 #define EEPROM_VERSION_VIC1 0x15    //first TeslaBMS_Victron version: balanceHyst meaning changed, is migrated
@@ -110,4 +111,5 @@ typedef struct {
   uint8_t ScaleLimits;       // 1 = scale CCL/DCL with (strings online / strings total)
   float balanceStart;        // V: start bleeding when cell > lowest cell in string + this value
   uint8_t AutoTopology;      // 1 = at every start: renumber + number of strings = what is found
+  uint8_t CVLControl;        // 1 = Victron style: lower CVL (0.1 V/s) instead of tapering CCL
 } EEPROMSettings;
