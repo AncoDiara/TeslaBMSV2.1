@@ -33,7 +33,8 @@
 
 #define MAX_MODULE_ADDR     0x3E
 
-#define EEPROM_VERSION      0x19    //update any time EEPROM struct below is changed.
+#define EEPROM_VERSION      0x1A    //update any time EEPROM struct below is changed.
+// 0x1A: ONE-TIME RESET to defaults (only the CAN speed is kept), see setup()
 #define EEPROM_VERSION_VIC4 0x18    //TeslaBMS_Victron without CVL control: is migrated
 #define EEPROM_VERSION_VIC3 0x17    //TeslaBMS_Victron with total currents: is migrated to currents per string
 #define EEPROM_VERSION_VIC2 0x16    //TeslaBMS_Victron without AutoTopology: is migrated

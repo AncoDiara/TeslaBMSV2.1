@@ -114,7 +114,13 @@ Open the menu with `s` in the serial monitor (115200 baud).
 - `m` – **Modules & Strings** (new): overview per string, `a` auto-detect, `f` search again, `r` renumber, `t` alarm delay, `v` CVL control, `s` CCL/DCL scaling
 - `q` – back / save (EEPROM)
 
-Settings from TeslaBMSV2 are taken over automatically (EEPROM migration); only the new fields get defaults.
+Settings live in the Teensy's EEPROM and survive flashing. **v26.9 resets them once to the defaults**
+(only the CAN speed is kept, so the connection to the GX stays up). Defaults are set for a Victron
+system controlled via DVCC: ESS mode on, no charger type (no car-charger messages on CAN),
+current from a Victron Lynx/shunt via CAN (PGN 127508), 6 cells per string, 4.10 V charge voltage,
+25 A per string. At startup the serial monitor shows the most important settings, with a warning
+when a value is illogical. The charge voltage used by the CVL control is always capped at
+`OverVSetpoint` − 50 mV.
 
 ## Other fixes compared to TeslaBMSV2
 

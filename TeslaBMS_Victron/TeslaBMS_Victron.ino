@@ -90,6 +90,7 @@ unsigned long essUnderTimer = 0, essOverTimer = 0; // separate timers for the ES
 float cvlActual = 0.0f;       // V, the CVL sent to Victron
 unsigned long cvlTimer = 0;
 bool overVoltLatch = false;   // highest cell >= OverVSetpoint: CCL = 0 (chargers off)
+bool eepromWasReset = false;  // set at the one-time EEPROM reset (message at startup)
 
 //Curent filter//
 float filterFrequency = 5.0 ;
@@ -302,8 +303,8 @@ void loadSettings()
   settings.socvolt[2] = 4100; //Voltage and SOC curve for voltage based SOC calc
   settings.socvolt[3] = 90; //Voltage and SOC curve for voltage based SOC calc
   settings.invertcur = 0; //Invert current sensor direction
-  settings.cursens = 2;
-  settings.curcan = LemCAB300;
+  settings.cursens = Canbus;        // current via CAN
+  settings.curcan = VictronLynx;    // Victron Lynx/shunt (PGN 127508 on VE.Can)
   settings.voltsoc = 0; //SOC purely voltage based
   settings.Pretime = 5000; //ms of precharge time
   settings.conthold = 50; //holding duty cycle for contactor 0-255
@@ -315,9 +316,10 @@ void loadSettings()
   settings.changecur = 20000;//mA change overpoint
   settings.gaugelow = 50; //empty fuel gauge pwm
   settings.gaugehigh = 255; //full fuel gauge pwm
-  settings.ESSmode = 0; //activate ESS mode
+  settings.ESSmode = 1; //ESS mode (stationary storage): always available, recovers by itself after an error
   settings.ncur = 1; //number of multiples to use for current measurement
-  settings.chargertype = 2; // 1 - Brusa NLG5xx 2 - Volt charger 0 -No Charger
+  settings.chargertype = NoCharger; // Victron controls charging via DVCC (CVL/CCL); no car charger messages on CAN
+  settings.ChargerDirect = 1;       // ESS: no enable input (IN2) needed
   settings.chargerspd = 100; //ms per message
   settings.chargereff = 85; //% effiecency of charger
   settings.chargerACv = 240;// AC input voltage into Charger
@@ -398,36 +400,20 @@ void setup()
   analogWriteFrequency(OUT8, pwmfreq);
 
   EEPROM.get(0, settings);
-  uint8_t v = settings.version;
-  if (v == EEPROM_VERSION_V2 || v == EEPROM_VERSION_VIC1 || v == EEPROM_VERSION_VIC2 || v == EEPROM_VERSION_VIC3 || v == EEPROM_VERSION_VIC4)
+  // ONE-TIME RESET (EEPROM 0x1A): with any other version all settings go to the
+  // defaults from loadSettings(). Only the CAN speed is kept, otherwise the
+  // connection to the GX would drop (e.g. 250 kbit/s on VE.Can for Lynx current).
+  if (settings.version != EEPROM_VERSION)
   {
-    // settings from TeslaBMSV2 / earlier TeslaBMS_Victron: keep them,
-    // only give the new fields a default value
-    if (v == EEPROM_VERSION_V2) loadNewSettings();
-    if (v == EEPROM_VERSION_V2 || v == EEPROM_VERSION_VIC1)
-    {
-      settings.balanceHyst = 0.005f;   // stop at 5 mV
-      settings.balanceStart = 0.015f;  // start at > 15 mV
-    }
-    if (v == EEPROM_VERSION_V2 || v == EEPROM_VERSION_VIC1 || v == EEPROM_VERSION_VIC2)
-    {
-      settings.AutoTopology = 1;       // count modules at every start
-    }
-    if (v != EEPROM_VERSION_VIC4)
-    {
-      // currents are now PER STRING (were the total for the battery)
-      settings.chargecurrentmax = 250;  // 25 A per string
-      settings.chargecurrent2max = 125; // 12.5 A per string
-      settings.chargecurrentend = 25;   // 2.5 A per string
-      settings.discurrentmax = 250;     // 25 A per string
-    }
-    settings.CVLControl = 1;           // Victron-style CVL control
-    settings.version = EEPROM_VERSION;
-    EEPROM.put(0, settings);
-  }
-  else if (settings.version != EEPROM_VERSION)
-  {
+    uint32_t oldCanSpeed = settings.canSpeed;
+    bool knownOld = (settings.version >= EEPROM_VERSION_V2 && settings.version < EEPROM_VERSION);
     loadSettings();
+    if (knownOld && (oldCanSpeed == 125000 || oldCanSpeed == 250000 || oldCanSpeed == 500000 || oldCanSpeed == 1000000))
+    {
+      settings.canSpeed = oldCanSpeed;
+    }
+    EEPROM.put(0, settings);
+    eepromWasReset = true;
   }
   if (settings.ScaleLimits > 1) settings.ScaleLimits = 1;
   if (settings.AutoTopology > 1) settings.AutoTopology = 1;
@@ -563,6 +549,8 @@ void setup()
   pwmcurmin = (pwmcurmid / 50 * pwmcurmax * -1);
   ////
   bms.clearFaults();
+
+  printKeySettings();
 
   ///precharge timer kickers
   Pretimer = millis();
@@ -3758,6 +3746,50 @@ void handleVictronLynx()
 }
 
 /*
+  NEW: at startup, show the most important settings, with a warning when a value is illogical.
+  The settings live in the EEPROM of the Teensy and survive flashing.
+*/
+void printKeySettings()
+{
+  SERIALCONSOLE.println();
+  if (eepromWasReset)
+  {
+    SERIALCONSOLE.println("*** EEPROM reset ONCE to the default settings (CAN speed kept) ***");
+  }
+  SERIALCONSOLE.println("---- Settings (EEPROM) ----");
+  SERIALCONSOLE.print("Cells in series per string: "); SERIALCONSOLE.print(settings.Scells);
+  SERIALCONSOLE.print("   strings: "); SERIALCONSOLE.print(settings.Pstrings);
+  SERIALCONSOLE.print(settings.AutoTopology ? " (auto)" : " (fixed)");
+  SERIALCONSOLE.print("   capacity per string: "); SERIALCONSOLE.print(settings.CAP); SERIALCONSOLE.println(" Ah");
+  SERIALCONSOLE.print("Charge voltage/cell: "); SERIALCONSOLE.print(settings.ChargeVsetpoint * 1000, 0);
+  SERIALCONSOLE.print(" mV  (CVL max "); SERIALCONSOLE.print(settings.ChargeVsetpoint * settings.Scells, 1);
+  SERIALCONSOLE.print(" V)   overvoltage: "); SERIALCONSOLE.print(settings.OverVSetpoint * 1000, 0);
+  SERIALCONSOLE.print(" mV   undervoltage: "); SERIALCONSOLE.print(settings.UnderVSetpoint * 1000, 0);
+  SERIALCONSOLE.print(" mV   discharge limit: "); SERIALCONSOLE.print(settings.DischVsetpoint * 1000, 0); SERIALCONSOLE.println(" mV");
+  SERIALCONSOLE.print("CCL/DCL per string: "); SERIALCONSOLE.print(settings.chargecurrentmax * 0.1, 1);
+  SERIALCONSOLE.print(" / "); SERIALCONSOLE.print(settings.discurrentmax * 0.1, 1); SERIALCONSOLE.println(" A");
+  SERIALCONSOLE.print("Balancing: from "); SERIALCONSOLE.print(settings.balanceVoltage * 1000, 0);
+  SERIALCONSOLE.print(" mV, start > "); SERIALCONSOLE.print(settings.balanceStart * 1000, 0);
+  SERIALCONSOLE.print(" mV, down to "); SERIALCONSOLE.print(settings.balanceHyst * 1000, 0); SERIALCONSOLE.println(" mV");
+  SERIALCONSOLE.print("ESS mode: "); SERIALCONSOLE.print(settings.ESSmode ? "on" : "off");
+  SERIALCONSOLE.print("   charger type: "); SERIALCONSOLE.print(settings.chargertype);
+  SERIALCONSOLE.print("   current sensor: "); SERIALCONSOLE.print(settings.cursens);
+  SERIALCONSOLE.print("/"); SERIALCONSOLE.print(settings.curcan);
+  SERIALCONSOLE.print("   CAN: "); SERIALCONSOLE.print(settings.canSpeed / 1000); SERIALCONSOLE.println(" kbit/s");
+
+  // checks
+  if (settings.ChargeVsetpoint > settings.OverVSetpoint - 0.05f)
+    SERIALCONSOLE.println("!!! WARNING: charge voltage per cell is (almost) above overvoltage - CVL is capped at OverV - 50 mV");
+  if (settings.ChargeVsetpoint < 3.5f || settings.ChargeVsetpoint > 4.2f)
+    SERIALCONSOLE.println("!!! WARNING: charge voltage per cell outside 3.50-4.20 V - check menu e -> 1");
+  if (settings.Scells % 6 != 0)
+    SERIALCONSOLE.println("!!! WARNING: cells in series is not a multiple of 6 - check menu b -> a");
+  if (settings.DischVsetpoint < settings.UnderVSetpoint)
+    SERIALCONSOLE.println("!!! WARNING: discharge limit lower than undervoltage");
+  SERIALCONSOLE.println("---------------------------");
+}
+
+/*
   NEW: Victron-style CVL control (settings.CVLControl = 1).
   - Normal: CVL = ChargeVsetpoint x Scells (storage mode: StoreVsetpoint x Scells).
   - As soon as the highest cell is above ChargeVsetpoint, the CVL is first put at most
@@ -3772,6 +3804,8 @@ void handleVictronLynx()
 void cvlControl()
 {
   float cellTarget = (storagemode == 1) ? settings.StoreVsetpoint : settings.ChargeVsetpoint;
+  // Safety: the target may never be above OverVSetpoint - 50 mV, whatever is set
+  if (cellTarget > settings.OverVSetpoint - 0.05f) cellTarget = settings.OverVSetpoint - 0.05f;
   float cvlMax = cellTarget * settings.Scells;
   // Lower limit is ONLY a safety net against a wrong measurement. With a badly balanced
   // pack (e.g. 5 cells at 3.5 V, 1 at 4.15 V) the CVL must be able to go well below

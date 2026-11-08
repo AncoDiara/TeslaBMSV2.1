@@ -8,4 +8,4 @@
   Did you change something yourself and commit it? Then raise FW_BUILD by 1 as well.
 */
 #define FW_YEAR   26   // year of the commit (2026)
-#define FW_BUILD  8    // commit number of TeslaBMS_Victron
+#define FW_BUILD  9    // commit number of TeslaBMS_Victron
