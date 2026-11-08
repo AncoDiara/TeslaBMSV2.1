@@ -177,7 +177,8 @@ unsigned char alarm[4] = {0, 0, 0, 0};
 unsigned char warning[4] = {0, 0, 0, 0};
 unsigned char mes[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 // Names towards VenusOS (each CAN field is max. 8 characters, padded with spaces)
-unsigned char bmsname[8] = {'C', 'l', 'a', 'u', 'd', 'e', ' ', ' '};        // 0x35E manufacturer
+// 0x35E must be EQUAL to the first 8 characters of 0x370 (CAN-bus BMS protocol) -> "Claude T"
+unsigned char bmsname[8] = {'C', 'l', 'a', 'u', 'd', 'e', ' ', 'T'};        // 0x35E
 const char batteryName[17] = "Claude Tesla BMS";                              // 0x370 + 0x371 battery name (16 characters)
 long unsigned int rxId;
 unsigned char len = 0;
@@ -1150,65 +1151,44 @@ void loop()
   }
 }
 
+/*
+  Alarms and warnings for 0x35A. Per alarm 2 bits:
+    1 (binary 01) = active, 2 (binary 10) = OK, 0 (binary 00) = not supported.
+  Supported alarms ALWAYS send 1 or 2; unsupported ones stay 0, so VenusOS
+  can hide them. (Previously 0 was sent when OK, which reads as "not supported".)
+*/
+static inline uint8_t almPair(bool active, uint8_t shift)
+{
+  return (uint8_t)((active ? 1 : 2) << shift);
+}
+
 void alarmupdate()
 {
-  alarm[0] = 0x00;
-  if (settings.OverVSetpoint < bms.getHighCellVolt())
-  {
-    alarm[0] = 0x04;
-  }
-  if (bms.getLowCellVolt() < settings.UnderVSetpoint)
-  {
-    alarm[0] |= 0x10;
-  }
-  if (bms.getHighTemperature() > settings.OverTSetpoint)
-  {
-    alarm[0] |= 0x40;
-  }
-  alarm[1] = 0;
-  if (bms.getLowTemperature() < settings.UnderTSetpoint)
-  {
-    alarm[1] = 0x01;
-  }
-  // NEW: BMS internal failure (byte 2, bits 6-7) when strings are missing
-  alarm[2] = 0;
-  if (moduleAlarm || bms.getStringsOnline() == 0)
-  {
-    alarm[2] |= 0x40;
-  }
-  alarm[3] = 0;
-  if ((bms.getHighCellVolt() - bms.getLowCellVolt()) > settings.CellGap)
-  {
-    alarm[3] = 0x01;
-  }
+  bool noData = (bms.getStringsOnline() == 0);
+  float hc = bms.getHighCellVolt();
+  float lc = bms.getLowCellVolt();
+  float ht = bms.getHighTemperature();
+  float lt = bms.getLowTemperature();
 
-  ///warnings///
-  warning[0] = 0;
+  ///// alarms /////
+  // byte 0: bits 0-1 general (not supported), 2-3 high voltage, 4-5 low voltage, 6-7 high temperature
+  alarm[0] = almPair(hc > settings.OverVSetpoint, 2)
+           | almPair(lc < settings.UnderVSetpoint, 4)
+           | almPair(ht > settings.OverTSetpoint, 6);
+  // byte 1: bits 0-1 low temperature; 2-3 high temp charge, 4-5 low temp charge, 6-7 high current: not supported
+  alarm[1] = almPair(lt < settings.UnderTSetpoint, 0);
+  // byte 2: bits 6-7 BMS internal (missing module/string); high charge current, contactor, short circuit: not supported
+  alarm[2] = almPair(moduleAlarm || noData, 6);
+  // byte 3: bits 0-1 cell imbalance
+  alarm[3] = almPair((hc - lc) > settings.CellGap, 0);
 
-  if (bms.getHighCellVolt() > (settings.OverVSetpoint - settings.WarnOff))
-  {
-    warning[0] = 0x04;
-  }
-  if (bms.getLowCellVolt() < (settings.UnderVSetpoint + settings.WarnOff))
-  {
-    warning[0] |= 0x10;
-  }
-
-  if (bms.getHighTemperature() > (settings.OverTSetpoint - settings.WarnToff))
-  {
-    warning[0] |= 0x40;
-  }
-  warning[1] = 0;
-  if (bms.getLowTemperature() < (settings.UnderTSetpoint + settings.WarnToff))
-  {
-    warning[1] = 0x01;
-  }
-  // NEW: warning BMS internal as soon as a string is missing
-  warning[2] = 0;
-  if (moduleWarning)
-  {
-    warning[2] |= 0x40;
-  }
+  ///// warnings (same layout) /////
+  warning[0] = almPair(hc > (settings.OverVSetpoint - settings.WarnOff), 2)
+             | almPair(lc < (settings.UnderVSetpoint + settings.WarnOff), 4)
+             | almPair(ht > (settings.OverTSetpoint - settings.WarnToff), 6);
+  warning[1] = almPair(lt < (settings.UnderTSetpoint + settings.WarnToff), 0);
+  warning[2] = almPair(moduleWarning || noData, 6);
+  warning[3] = 0; // cell imbalance warning: not supported (only the alarm)
 }
 
 /*
