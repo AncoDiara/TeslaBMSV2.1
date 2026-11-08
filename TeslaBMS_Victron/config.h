@@ -33,7 +33,8 @@
 
 #define MAX_MODULE_ADDR     0x3E
 
-#define EEPROM_VERSION      0x17    //update any time EEPROM struct below is changed.
+#define EEPROM_VERSION      0x18    //update any time EEPROM struct below is changed.
+#define EEPROM_VERSION_VIC3 0x17    //TeslaBMS_Victron with total currents: is migrated to currents per string
 #define EEPROM_VERSION_VIC2 0x16    //TeslaBMS_Victron without AutoTopology: is migrated
 #define EEPROM_VERSION_VIC1 0x15    //first TeslaBMS_Victron version: balanceHyst meaning changed, is migrated
 #define EEPROM_VERSION_V2   0x14    //TeslaBMSV2 layout: is migrated automatically (settings are kept)
@@ -67,10 +68,10 @@ typedef struct {
   int Scells;
   int Pstrings;
   int CAP;
-  uint16_t  chargecurrentmax;
-  uint16_t  chargecurrent2max;
-  uint16_t  chargecurrentend;
-  uint16_t  discurrentmax ;
+  uint16_t  chargecurrentmax;   // 0.1A PER STRING (TeslaBMS_Victron)
+  uint16_t  chargecurrent2max;  // 0.1A PER STRING
+  uint16_t  chargecurrentend;   // 0.1A PER STRING
+  uint16_t  discurrentmax ;     // 0.1A PER STRING
   int socvolt[4];
   int invertcur;
   int cursens;

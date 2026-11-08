@@ -43,7 +43,7 @@ Modules are grouped into **strings** (modules in series), and the strings are co
 
 | CAN ID | Content |
 |---|---|
-| 0x351 | CVL (Scells × charge voltage), CCL, DCL, discharge voltage |
+| 0x351 | CVL (Scells × charge voltage), CCL, DCL (per string × strings online), discharge voltage |
 | 0x355 | SOC, SOH, SOC 0.01 % (fixed: was a factor 10 too low) |
 | 0x356 | Pack voltage (average of the complete strings), current, temperature |
 | 0x35A | Alarms/warnings, incl. **BMS internal** (byte 2/6, 0x40) when a string is missing |
@@ -59,6 +59,17 @@ Modules are grouped into **strings** (modules in series), and the strings are co
 - after `ModuleAlarmDelay` seconds (default 60): alarm "BMS internal"
 - CCL/DCL are scaled with strings online / strings total (can be switched off: menu `m` → `s`)
 - every 30 s the missing modules are searched for again; a module that lost its address after a power interruption gets its old address (= the right string) back
+
+## Charge and discharge current (CCL/DCL)
+
+The current settings are **per string** (per pack at 24 V):
+
+- default 25 A charge and 25 A discharge per string (menu `e` → `3`, menu `b` → `8`)
+- CCL/DCL to Victron = value per string × number of strings online (with 5 packs: 125 A)
+- taper while charging: from `ChargeVsetpoint − ChargeHys` (default 3.90 V) the CCL decreases linearly
+  towards the end current per string (default 2.5 A) at `ChargeVsetpoint` (4.10 V); above that 0 A
+- fixed: in TeslaBMSV2 the taper could wrap around to a huge CCL (~6500 A) when a cell
+  rose above `ChargeVsetpoint`, because the current was stored as an unsigned number
 
 ## Balancing
 

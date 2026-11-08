@@ -155,9 +155,9 @@ bool CanOnRev = false;
 
 //variables for VE can
 uint16_t chargevoltage = 49100; //max charge voltage in mv
-uint16_t  chargecurrent, tempchargecurrent = 0;
+int32_t  chargecurrent = 0, tempchargecurrent = 0; // 0.1A, TOTAL for the battery. Signed: see currentlimit()
 uint16_t disvoltage = 42000; // max discharge voltage in mv
-uint16_t  discurrent = 0;
+int32_t  discurrent = 0; // 0.1A, TOTAL for the battery
 int batvcal = 0;
 
 uint16_t SOH = 100; // SOH place holder
@@ -276,11 +276,11 @@ void loadSettings()
   settings.Pstrings = 1; // number of strings in parallel
   settings.Scells = 6;//Cells in series per string: 6 = 24V (1 Tesla module), 12 = 48V (2 modules)
   settings.StoreVsetpoint = 3.8; // V storage mode charge max
-  settings.discurrentmax = 300; // max discharge current in 0.1A
+  settings.discurrentmax = 250; // max discharge current in 0.1A PER STRING (25 A)
   settings.DisTaper = 0.3f; //V offset to bring in discharge taper to Zero Amps at settings.DischVsetpoint
-  settings.chargecurrentmax = 300; //max charge current in 0.1A
-  settings.chargecurrent2max = 150; //max charge current in 0.1A
-  settings.chargecurrentend = 50; //end charge current in 0.1A
+  settings.chargecurrentmax = 250; //max charge current in 0.1A PER STRING (25 A)
+  settings.chargecurrent2max = 125; //alternative max charge current in 0.1A PER STRING (12.5 A)
+  settings.chargecurrentend = 25; //end charge current in 0.1A PER STRING (2.5 A)
   settings.PulseCh = 600; //Peak Charge current in 0.1A
   settings.PulseChDur = 5000; //Ms of discharge pulse derating
   settings.PulseDi = 600; //Peak Charge current in 0.1A
@@ -385,8 +385,13 @@ void setup()
   analogWriteFrequency(OUT8, pwmfreq);
 
   EEPROM.get(0, settings);
-  if (settings.version == EEPROM_VERSION_V2 || settings.version == EEPROM_VERSION_VIC1 || settings.version == EEPROM_VERSION_VIC2)
+  if (settings.version == EEPROM_VERSION_V2 || settings.version == EEPROM_VERSION_VIC1 || settings.version == EEPROM_VERSION_VIC2 || settings.version == EEPROM_VERSION_VIC3)
   {
+    // currents are now PER STRING (were the total for the battery): set new defaults
+    settings.chargecurrentmax = 250;  // 25 A per string
+    settings.chargecurrent2max = 125; // 12.5 A per string
+    settings.chargecurrentend = 25;   // 2.5 A per string
+    settings.discurrentmax = 250;     // 25 A per string
     // settings from TeslaBMSV2 / earlier TeslaBMS_Victron: keep them,
     // only add the new fields
     if (settings.version == EEPROM_VERSION_V2) loadNewSettings();
@@ -395,7 +400,7 @@ void setup()
       settings.balanceHyst = 0.005f;   // stop at 5 mV
       settings.balanceStart = 0.015f;  // start at > 15 mV
     }
-    settings.AutoTopology = 1;         // count modules at every start
+    if (settings.version != EEPROM_VERSION_VIC3) settings.AutoTopology = 1; // count modules at every start
     settings.version = EEPROM_VERSION;
     EEPROM.put(0, settings);
   }
@@ -3012,15 +3017,13 @@ case 'r':  //r for reset
         SERIALCONSOLE.print("2 - Charge Hystersis: ");
         SERIALCONSOLE.print(settings.ChargeHys * 1000, 0 );
         SERIALCONSOLE.println("mV");
-        if (settings.chargertype > 0)
-        {
-          SERIALCONSOLE.print("3 - Pack Max Charge Current: ");
-          SERIALCONSOLE.print(settings.chargecurrentmax * 0.1);
-          SERIALCONSOLE.println("A");
-          SERIALCONSOLE.print("4- Pack End of Charge Current: ");
-          SERIALCONSOLE.print(settings.chargecurrentend * 0.1);
-          SERIALCONSOLE.println("A");
-        }
+        // always shown: also used for the CCL towards Victron
+        SERIALCONSOLE.print("3 - Max Charge Current PER STRING: ");
+        SERIALCONSOLE.print(settings.chargecurrentmax * 0.1);
+        SERIALCONSOLE.println("A");
+        SERIALCONSOLE.print("4 - End of Charge Current PER STRING: ");
+        SERIALCONSOLE.print(settings.chargecurrentend * 0.1);
+        SERIALCONSOLE.println("A");
         SERIALCONSOLE.print("5- Charger Type: ");
         switch (settings.chargertype)
         {
@@ -3075,7 +3078,7 @@ case 'r':  //r for reset
         SERIALCONSOLE.println(" C");
         if (settings.chargertype > 0)
         {
-          SERIALCONSOLE.print("a - Alternate Pack Max Charge Current: ");
+          SERIALCONSOLE.print("a - Alternate Max Charge Current PER STRING: ");
           SERIALCONSOLE.print(settings.chargecurrent2max * 0.1);
           SERIALCONSOLE.println("A");
           SERIALCONSOLE.print("b - Charger AC to DC effiecency: ");
@@ -3360,7 +3363,7 @@ case 'r':  //r for reset
         SERIALCONSOLE.print(settings.CAP);
         SERIALCONSOLE.print("Ah");
         SERIALCONSOLE.println("  ");
-        SERIALCONSOLE.print("8 - Pack Max Discharge : ");
+        SERIALCONSOLE.print("8 - Max Discharge Current PER STRING : ");
         SERIALCONSOLE.print(settings.discurrentmax * 0.1);
         SERIALCONSOLE.print("A");
         SERIALCONSOLE.println("  ");
@@ -3795,16 +3798,23 @@ void currentlimit()
     }
 
   }
-  // NEW: scale with the number of complete strings (parallel) that are online
-  if (bms.getStringsOnline() == 0)
+  // NEW: the calculation above is PER STRING. Clamp to 0..max per string
+  // (the voltage taper can extrapolate above ChargeVsetpoint; previously that could
+  // wrap around to a huge CCL with the old uint16 type).
+  if (discurrent < 0) discurrent = 0;
+  if (chargecurrent < 0) chargecurrent = 0;
+  if (discurrent > settings.discurrentmax) discurrent = settings.discurrentmax;
+  if (chargecurrent > settings.chargecurrentmax) chargecurrent = settings.chargecurrentmax;
+
+  // Total for the battery = per string x number of strings.
+  // ScaleLimits = 1: only count strings that are online; 0: always the set number.
   {
-    discurrent = 0;
-    chargecurrent = 0;
-  }
-  else if (settings.ScaleLimits == 1 && bms.getStringsOnline() < bms.getStringsExpected())
-  {
-    discurrent = (uint32_t)discurrent * bms.getStringsOnline() / bms.getStringsExpected();
-    chargecurrent = (uint32_t)chargecurrent * bms.getStringsOnline() / bms.getStringsExpected();
+    int32_t nStrings = (settings.ScaleLimits == 1) ? bms.getStringsOnline() : bms.getStringsExpected();
+    if (bms.getStringsOnline() == 0) nStrings = 0; // no information = no current
+    discurrent = discurrent * nStrings;
+    chargecurrent = chargecurrent * nStrings;
+    if (discurrent > 32000) discurrent = 32000;      // 0x351 field: max 3200 A
+    if (chargecurrent > 32000) chargecurrent = 32000;
   }
 
   ///No negative currents///
