@@ -48,7 +48,7 @@ Modules are grouped into **strings** (modules in series), and the strings are co
 | 0x356 | Pack voltage (average of the complete strings), current, temperature |
 | 0x35A | Alarms/warnings, incl. **BMS internal** (byte 2/6, 0x40) when a string is missing |
 | 0x35E | Manufacturer: `Claude` |
-| 0x35F | Firmware version = compile date (byte 2 year, byte 3 week number), capacity in Ah; sent every second |
+| 0x35F | Firmware version `v<year>.<build>` from `version.h` (e.g. v26.7), capacity in Ah; sent every second |
 | 0x370 + 0x371 | Battery name: `Claude Tesla BMS` |
 | 0x372 | **Strings** online / offline (VenusOS shows 1 string as 1 "module"), blocking charge/discharge |
 | 0x373 | Min/max cell voltage and temperature |
@@ -124,6 +124,13 @@ Settings from TeslaBMSV2 are taken over automatically (EEPROM migration); only t
 
 Known and not yet fixed: some contactor/precharge timers (`mainconttimer`, `Pretimer`) are not
 rollover-safe for `millis()` (after ~49.7 days of continuous operation).
+
+## Version number
+
+`version.h` contains `FW_YEAR` and `FW_BUILD`. VenusOS shows them as **v26.7** (year.build).
+`FW_BUILD` is raised by 1 with every commit and wraps around after 255. So every version on
+GitHub has its own number, whoever compiles it. If you change something yourself, raise
+`FW_BUILD` as well. Compile date and time are shown in the serial monitor.
 
 ## Licence
 

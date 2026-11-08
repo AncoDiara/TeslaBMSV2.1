@@ -52,6 +52,7 @@
 #include <EEPROM.h>
 #include <FlexCAN.h> //https://github.com/collin80/FlexCAN_Library 
 #include <SPI.h>
+#include "version.h"     // firmware version (FW_YEAR.FW_BUILD), raised with every commit
 #include "LowPassFilter.h" // built-in low-pass filter (replaces the external Filters library)
 #include "Serial_CAN_Module_TeensyS2.h" //https://github.com/tomdebree/Serial_CAN_Teensy
 
@@ -457,7 +458,11 @@ void setup()
   SERIALCONSOLE.begin(115200);
   SERIALCONSOLE.println("Starting up!");
   SERIALCONSOLE.println("SimpBMS V2 Tesla - TeslaBMS_Victron (Claude Tesla BMS)");
-  SERIALCONSOLE.print("Compiled: ");
+  SERIALCONSOLE.print("Firmware v");
+  SERIALCONSOLE.print(FW_YEAR);
+  SERIALCONSOLE.print(".");
+  SERIALCONSOLE.print(FW_BUILD & 0xFF);
+  SERIALCONSOLE.print("  Compiled: ");
   SERIALCONSOLE.print(__DATE__);
   SERIALCONSOLE.print(" ");
   SERIALCONSOLE.println(__TIME__);
@@ -1969,22 +1974,15 @@ void canLocationText(uint8_t *buf, uint8_t addr, uint8_t num, char kind)
 }
 
 /*
-  NEW: firmware version from the compile date (automatic, nothing to maintain).
-  Byte 2 = year (e.g. 26), byte 3 = week number (1-53), as in diyBMS.
+  NEW: firmware version from version.h: VenusOS shows v<FW_YEAR>.<FW_BUILD>.
+  FW_BUILD goes up by 1 with every commit and wraps around after 255.
 */
-uint8_t fwYear = 0, fwWeek = 0;
+uint8_t fwYear = FW_YEAR;
+uint8_t fwWeek = (uint8_t)(FW_BUILD & 0xFF); // name kept: is now the build number
 void calcFirmwareDate()
 {
-  const char *d = __DATE__; // "Nov  8 2026"
-  const char *months = "JanFebMarAprMayJunJulAugSepOctNovDec";
-  int month = 0;
-  for (int m = 0; m < 12; m++) if (strncmp(d, months + m * 3, 3) == 0) month = m + 1;
-  int day = atoi(d + 4);
-  int year = atoi(d + 7);
-  static const int cum[12] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
-  int doy = cum[month - 1] + day + ((month > 2 && (year % 4 == 0)) ? 1 : 0);
-  fwYear = year % 100;
-  fwWeek = (doy - 1) / 7 + 1;
+  fwYear = FW_YEAR;
+  fwWeek = (uint8_t)(FW_BUILD & 0xFF);
 }
 unsigned long canSlowTimer = 0;
 
@@ -2130,8 +2128,8 @@ void VEcan() //communication with Victron system over CAN
     msg.len = 8;
     msg.buf[0] = 0x00;           // battery model (not used by Victron)
     msg.buf[1] = 0x00;
-    msg.buf[2] = fwYear;         // firmware: compile year
-    msg.buf[3] = fwWeek;         // firmware: compile week
+    msg.buf[2] = fwYear;         // firmware: year (version.h)
+    msg.buf[3] = fwWeek;         // firmware: build number (version.h)
     msg.buf[4] = lowByte(uint16_t(settings.Pstrings * settings.CAP));  // capacity Ah
     msg.buf[5] = highByte(uint16_t(settings.Pstrings * settings.CAP));
     msg.buf[6] = 0x00;
@@ -3527,9 +3525,9 @@ case 'r':  //r for reset
     SERIALCONSOLE.print(__DATE__);
     SERIALCONSOLE.print(" ");
     SERIALCONSOLE.print(__TIME__);
-    SERIALCONSOLE.print("  (VenusOS: year ");
+    SERIALCONSOLE.print("  (VenusOS: v");
     SERIALCONSOLE.print(fwYear);
-    SERIALCONSOLE.print(" week ");
+    SERIALCONSOLE.print(".");
     SERIALCONSOLE.print(fwWeek);
     SERIALCONSOLE.println(")");
     SERIALCONSOLE.println("b - Battery Settings");
