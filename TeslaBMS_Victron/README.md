@@ -48,9 +48,12 @@ Modules are grouped into **strings** (modules in series), and the strings are co
 | 0x356 | Pack voltage (average of the complete strings), current, temperature |
 | 0x35A | Alarms/warnings, incl. **BMS internal** (byte 2/6, 0x40) when a string is missing |
 | 0x35E | Manufacturer: `Claude` |
+| 0x35F | Firmware version = compile date (byte 2 year, byte 3 week number), capacity in Ah; sent every second |
 | 0x370 + 0x371 | Battery name: `Claude Tesla BMS` |
 | 0x372 | **Strings** online / offline (VenusOS shows 1 string as 1 "module"), blocking charge/discharge |
 | 0x373 | Min/max cell voltage and temperature |
+| 0x374 / 0x375 | **Which cell** has the lowest / highest voltage, e.g. `Pk3 C5` = pack (module) 3, cell 5; sent every second |
+| 0x376 / 0x377 | Which temperature sensor is the coldest / warmest, e.g. `Pk2 T1` |
 | 0x379 | Installed capacity (Ah per string × number of strings) |
 
 **Missing module/string during operation:** the BMS does *not* go to Error; CVL/CCL/DCL keep being sent.

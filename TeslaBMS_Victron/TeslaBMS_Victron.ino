@@ -456,7 +456,12 @@ void setup()
 
   SERIALCONSOLE.begin(115200);
   SERIALCONSOLE.println("Starting up!");
-  SERIALCONSOLE.println("SimpBMS V2 Tesla");
+  SERIALCONSOLE.println("SimpBMS V2 Tesla - TeslaBMS_Victron (Claude Tesla BMS)");
+  SERIALCONSOLE.print("Compiled: ");
+  SERIALCONSOLE.print(__DATE__);
+  SERIALCONSOLE.print(" ");
+  SERIALCONSOLE.println(__TIME__);
+  calcFirmwareDate();
 
   Serial2.begin(115200); //display and can adpater canbus
 
@@ -1949,6 +1954,40 @@ void calcur()
   SERIALCONSOLE.println("  ");
 }
 
+/*
+  NEW: 8-character name of a cell or sensor for VenusOS (0x374-0x377).
+  Format "Pk3 C5" = pack (module) 3, cell 5; "Pk2 T1" = pack 2, temperature sensor 1.
+  The pack number is the module address = position in the comm chain.
+*/
+void canLocationText(uint8_t *buf, uint8_t addr, uint8_t num, char kind)
+{
+  char text[9];
+  memset(buf, 0, 8);
+  if (addr == 0) return; // unknown
+  snprintf(text, sizeof(text), "Pk%d %c%d", addr, kind, num);
+  for (int i = 0; i < 8 && text[i] != 0; i++) buf[i] = text[i];
+}
+
+/*
+  NEW: firmware version from the compile date (automatic, nothing to maintain).
+  Byte 2 = year (e.g. 26), byte 3 = week number (1-53), as in diyBMS.
+*/
+uint8_t fwYear = 0, fwWeek = 0;
+void calcFirmwareDate()
+{
+  const char *d = __DATE__; // "Nov  8 2026"
+  const char *months = "JanFebMarAprMayJunJulAugSepOctNovDec";
+  int month = 0;
+  for (int m = 0; m < 12; m++) if (strncmp(d, months + m * 3, 3) == 0) month = m + 1;
+  int day = atoi(d + 4);
+  int year = atoi(d + 7);
+  static const int cum[12] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
+  int doy = cum[month - 1] + day + ((month > 2 && (year % 4 == 0)) ? 1 : 0);
+  fwYear = year % 100;
+  fwWeek = (doy - 1) / 7 + 1;
+}
+unsigned long canSlowTimer = 0;
+
 void VEcan() //communication with Victron system over CAN
 {
   msg.id  = 0x351;
@@ -2080,6 +2119,31 @@ void VEcan() //communication with Victron system over CAN
     msg.buf[7] =
   */
   delay(2);
+
+  // NEW: once per second: battery info + location of min/max cell and temperature
+  if (millis() - canSlowTimer >= 1000)
+  {
+    canSlowTimer = millis();
+    if (fwYear == 0) calcFirmwareDate();
+
+    msg.id  = 0x35F; // battery model / firmware / available capacity
+    msg.len = 8;
+    msg.buf[0] = 0x00;           // battery model (not used by Victron)
+    msg.buf[1] = 0x00;
+    msg.buf[2] = fwYear;         // firmware: compile year
+    msg.buf[3] = fwWeek;         // firmware: compile week
+    msg.buf[4] = lowByte(uint16_t(settings.Pstrings * settings.CAP));  // capacity Ah
+    msg.buf[5] = highByte(uint16_t(settings.Pstrings * settings.CAP));
+    msg.buf[6] = 0x00;
+    msg.buf[7] = 0x00;
+    Can0.write(msg);
+    delay(2);
+
+    msg.id = 0x374; msg.len = 8; canLocationText(msg.buf, bms.lowCellAddr, bms.lowCellNum, 'C');  Can0.write(msg); delay(2);
+    msg.id = 0x375; msg.len = 8; canLocationText(msg.buf, bms.highCellAddr, bms.highCellNum, 'C'); Can0.write(msg); delay(2);
+    msg.id = 0x376; msg.len = 8; canLocationText(msg.buf, bms.lowTempAddr, bms.lowTempNum, 'T');  Can0.write(msg); delay(2);
+    msg.id = 0x377; msg.len = 8; canLocationText(msg.buf, bms.highTempAddr, bms.highTempNum, 'T'); Can0.write(msg); delay(2);
+  }
 
   msg.id  = 0x372;
   msg.len = 8;
@@ -3458,7 +3522,16 @@ case 'r':  //r for reset
     SERIALCONSOLE.println("MENU");
     SERIALCONSOLE.println("Debugging Paused");
     SERIALCONSOLE.print("Firmware Version : ");
-    SERIALCONSOLE.println(firmver);
+    SERIALCONSOLE.print(firmver);
+    SERIALCONSOLE.print("  compiled ");
+    SERIALCONSOLE.print(__DATE__);
+    SERIALCONSOLE.print(" ");
+    SERIALCONSOLE.print(__TIME__);
+    SERIALCONSOLE.print("  (VenusOS: year ");
+    SERIALCONSOLE.print(fwYear);
+    SERIALCONSOLE.print(" week ");
+    SERIALCONSOLE.print(fwWeek);
+    SERIALCONSOLE.println(")");
     SERIALCONSOLE.println("b - Battery Settings");
     SERIALCONSOLE.println("a - Alarm and Warning Settings");
     SERIALCONSOLE.println("e - Charging Settings");

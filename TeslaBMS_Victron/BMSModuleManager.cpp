@@ -53,6 +53,8 @@ BMSModuleManager::BMSModuleManager()
   highTemp = 0.0f;
   CellsBalancing = 0;
   for (int x = 0; x <= MAX_MODULE_ADDR; x++) balMask[x] = 0;
+  lowCellAddr = lowCellNum = highCellAddr = highCellNum = 0;
+  lowTempAddr = lowTempNum = highTempAddr = highTempNum = 0;
 }
 
 /////////////////////////////// Topology ///////////////////////////////
@@ -629,6 +631,31 @@ void BMSModuleManager::getAllVoltTemp()
     }
   }
   if (modulesOnline == 0) LowCellVolt = 0.0f; // no data = not safe
+
+  // NEW: which cell / which sensor is the lowest/highest (for VenusOS 0x374-0x377)
+  {
+    float lo = 10.0f, hi = 0.0f, tlo = 999.0f, thi = -999.0f;
+    lowCellAddr = lowCellNum = highCellAddr = highCellNum = 0;
+    lowTempAddr = lowTempNum = highTempAddr = highTempNum = 0;
+    for (int x = 1; x <= getExpectedModules(); x++)
+    {
+      if (!modules[x].isOnline()) continue;
+      for (int i = 0; i < 6; i++)
+      {
+        float v = modules[x].getCellVoltage(i);
+        if (v > settings.IgnoreVolt && v < lo) { lo = v; lowCellAddr = x; lowCellNum = i + 1; }
+        if (v < 4.5f && v > hi)                { hi = v; highCellAddr = x; highCellNum = i + 1; }
+      }
+      for (int t = 0; t < 2; t++)
+      {
+        if (settings.IgnoreTemp != 0 && settings.IgnoreTemp != t + 1) continue; // sensor not in use
+        float tc = modules[x].getTemperature(t);
+        if (tc <= -70.0f) continue; // no sensor connected
+        if (tc < tlo) { tlo = tc; lowTempAddr = x; lowTempNum = t + 1; }
+        if (tc > thi) { thi = tc; highTempAddr = x; highTempNum = t + 1; }
+      }
+    }
+  }
 
   getAvgTemperature(); // also updates lowTemp/highTemp
   for (int x = 1; x <= getExpectedModules(); x++)

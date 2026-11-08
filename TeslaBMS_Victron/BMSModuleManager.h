@@ -66,6 +66,11 @@ class BMSModuleManager
     int getModulesOnline();
     int getExtraModules();
 
+    // NEW: location of the extremes (for CAN 0x374-0x377). addr = module address (1..),
+    // num = cell 1..6 or temperature sensor 1..2. 0 = unknown.
+    uint8_t lowCellAddr, lowCellNum, highCellAddr, highCellNum;
+    uint8_t lowTempAddr, lowTempNum, highTempAddr, highTempNum;
+
   private:
     float packVolt;                         // All modules added together
     int Pstring;
