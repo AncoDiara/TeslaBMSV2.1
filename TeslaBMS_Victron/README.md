@@ -11,6 +11,8 @@ The original TeslaBMSV2 code in this repository is left unchanged.
 > 24 V system with 5–6 modules in parallel. Check all settings and alarms on your own system
 > before relying on it, and always use independent protection (fuse, breaker).
 
+Setting up a Windows laptop to always fetch and flash the latest version: see **[WINDOWS-SETUP.md](WINDOWS-SETUP.md)**.
+
 ## Hardware
 
 - SimpBMS V2 board with **Teensy 3.2** (Teensyduino; libraries FlexCAN and ADC come with Teensyduino)
