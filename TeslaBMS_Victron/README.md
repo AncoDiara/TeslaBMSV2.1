@@ -75,11 +75,13 @@ Modules are grouped into **strings** (modules in series), and the strings are co
 **CVL** is controlled the way Victron systems expect:
 
 - normal: CVL = `ChargeVsetpoint` × Scells (default 4.10 V × 6 = 24.6 V; storage mode: `StoreVsetpoint`)
-- as soon as the highest cell rises above `ChargeVsetpoint`, the CVL drops by at most **0.1 V per second**,
-  towards *battery voltage − excess of that cell*, so the chargers hold the voltage neatly and that cell
-  stays at the target
+- as soon as the highest cell rises above `ChargeVsetpoint`, the CVL is first set to at most battery
+  voltage + 0.1 V (a CVL far above the battery voltage limits nothing) and then drops by at most
+  **0.1 V per second**, towards *battery voltage − excess of that cell*, so the chargers hold the
+  voltage neatly and that cell stays at the target
 - when the highest cell is more than 10 mV below the target again, the CVL rises slowly (0.01 V/s)
-- lower limit: (`ChargeVsetpoint` − `ChargeHys`) × Scells
+- no fixed lower limit: with a badly balanced pack (e.g. five cells at 3.50 V and one at 4.15 V) the CVL
+  goes as low as needed; only a safety net against a wrong measurement: `UnderVSetpoint` × Scells
 - can be switched off (old behaviour: fixed CVL, CCL taper): menu `m` → `v`
 - the status line in the serial monitor shows CVL, CCL and DCL
 

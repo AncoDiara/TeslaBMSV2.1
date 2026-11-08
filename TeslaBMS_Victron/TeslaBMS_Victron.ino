@@ -84,6 +84,7 @@ unsigned long essUnderTimer = 0, essOverTimer = 0; // separate timers for the ES
 #define CVL_DOWN_RATE 0.10f   // V per second lowering as long as the highest cell is above the charge voltage
 #define CVL_UP_RATE   0.01f   // V per second raising again when there is room (slow, prevents hunting)
 #define CVL_BAND      0.010f  // V per cell: raise only when the highest cell is this far below the target
+#define CVL_START_MARGIN 0.10f // V: when lowering, start no higher than battery voltage + this margin
 #define OV_RELEASE    0.050f  // V per cell: CCL=0 due to overvoltage is released below OverV - this value
 float cvlActual = 0.0f;       // V, the CVL sent to Victron
 unsigned long cvlTimer = 0;
@@ -3708,19 +3709,23 @@ void handleVictronLynx()
 /*
   NEW: Victron-style CVL control (settings.CVLControl = 1).
   - Normal: CVL = ChargeVsetpoint x Scells (storage mode: StoreVsetpoint x Scells).
-  - As soon as the highest cell is above ChargeVsetpoint, the CVL drops by at most
-    CVL_DOWN_RATE (0.1 V/s) to (battery voltage - excess of that cell), so that this
-    cell goes back to the target. The Victron chargers then neatly hold the
+  - As soon as the highest cell is above ChargeVsetpoint, the CVL is first put at most
+    CVL_START_MARGIN above the battery voltage, and then drops by at most CVL_DOWN_RATE
+    (0.1 V/s) to (battery voltage - excess of that cell), so that this cell goes
+    back to the target. The Victron chargers then neatly hold the
     voltage; the CCL stays open.
   - Is the highest cell CVL_BAND below the target again, the CVL rises slowly (CVL_UP_RATE).
-  - Lower limit: (ChargeVsetpoint - ChargeHys) x Scells, upper limit: ChargeVsetpoint x Scells.
+  - Upper limit: ChargeVsetpoint x Scells. Lower limit only as a safety net: UnderVSetpoint x Scells.
   - CCL = 0 only at real overvoltage (OverVSetpoint, see currentlimit()).
 */
 void cvlControl()
 {
   float cellTarget = (storagemode == 1) ? settings.StoreVsetpoint : settings.ChargeVsetpoint;
   float cvlMax = cellTarget * settings.Scells;
-  float cvlMin = (cellTarget - settings.ChargeHys) * settings.Scells;
+  // Lower limit is ONLY a safety net against a wrong measurement. With a badly balanced
+  // pack (e.g. 5 cells at 3.5 V, 1 at 4.15 V) the CVL must be able to go well below
+  // (target - hysteresis) x Scells, otherwise charging continues.
+  float cvlMin = settings.UnderVSetpoint * settings.Scells;
 
   unsigned long now = millis();
   float dt = (cvlTimer == 0) ? 0.0f : (now - cvlTimer) / 1000.0f;
@@ -3739,6 +3744,11 @@ void cvlControl()
       // goal: battery voltage minus the excess of the highest cell, so that this cell
       // goes back to the target. Never lower further than that (no needless collapse).
       float cvlGoal = bms.getPackVoltage() - (hc - cellTarget);
+      // A CVL far above the battery voltage limits nothing: first move to just
+      // above the battery voltage, then drop by 0.1 V/s from there. Otherwise the
+      // chargers keep supplying full current during the ramp (dangerous for the high cell).
+      float cvlStart = bms.getPackVoltage() + CVL_START_MARGIN;
+      if (cvlActual > cvlStart) cvlActual = cvlStart;
       if (cvlActual > cvlGoal)
       {
         cvlActual -= CVL_DOWN_RATE * dt;
