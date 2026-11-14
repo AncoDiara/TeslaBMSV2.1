@@ -1,13 +1,20 @@
 [
   {
-    "id": "27da39bfea1cf2a6",
+    "id": "5fce40a6fa720026",
     "type": "tab",
     "label": "Tesla BMS",
     "disabled": false,
+    "env": [
+      {
+        "name": "TESLABMS_FLOW_VERSION",
+        "value": "v26.13",
+        "type": "str"
+      }
+    ],
     "info": "Claude Tesla BMS (TeslaBMS_Victron) - reads the JSON telemetry of the Teensy via USB.\n\n1. On the Teensy: serial monitor, menu s -> m -> j (JSON on), q to save.\n2. Check the serial port (default /dev/ttyACM0) in the 'Teensy USB' config node.\n3. Needs node-red-node-serialport and @flowfuse/node-red-dashboard (Dashboard 2.0).\n4. The port is found automatically (top of the flow); VE_SERVICE=ignore is set automatically.\n5. Already have a Dashboard 2.0 base/theme? Then point the page 'Tesla BMS' at your own base and delete the imported ones."
   },
   {
-    "id": "339bca9f3681b6c1",
+    "id": "8c8514df217ca0c9",
     "type": "ui-base",
     "name": "Dashboard",
     "path": "/dashboard",
@@ -21,7 +28,7 @@
     "titleBarStyle": "default"
   },
   {
-    "id": "3648201393cc71d8",
+    "id": "6168e01a90f0542a",
     "type": "ui-theme",
     "name": "Tesla BMS theme",
     "colors": {
@@ -40,14 +47,14 @@
     }
   },
   {
-    "id": "44f1aefa64c5a761",
+    "id": "8b8819d7767f3d0e",
     "type": "ui-page",
     "name": "Tesla BMS",
-    "ui": "339bca9f3681b6c1",
+    "ui": "8c8514df217ca0c9",
     "path": "/tesla-bms",
     "icon": "battery-charging",
     "layout": "grid",
-    "theme": "3648201393cc71d8",
+    "theme": "6168e01a90f0542a",
     "order": 1,
     "className": "",
     "visible": "true",
@@ -76,10 +83,10 @@
     ]
   },
   {
-    "id": "22795f7dc391f693",
+    "id": "0e369baf283f7dd4",
     "type": "ui-group",
     "name": "Battery",
-    "page": "44f1aefa64c5a761",
+    "page": "8b8819d7767f3d0e",
     "width": "12",
     "height": "1",
     "order": 1,
@@ -90,10 +97,10 @@
     "groupType": "default"
   },
   {
-    "id": "6f179b461260301f",
+    "id": "e15101525412685e",
     "type": "ui-group",
     "name": "History (12 h)",
-    "page": "44f1aefa64c5a761",
+    "page": "8b8819d7767f3d0e",
     "width": "12",
     "height": "1",
     "order": 2,
@@ -104,7 +111,7 @@
     "groupType": "default"
   },
   {
-    "id": "f83418fd7fd265fe",
+    "id": "8a93b740a755f7ad",
     "type": "serial-port",
     "name": "Teensy USB",
     "serialport": "/dev/ttyACM0",
@@ -124,25 +131,25 @@
     "responsetimeout": "10000"
   },
   {
-    "id": "9b9d0c51cab3534c",
+    "id": "d5510db43771d17a",
     "type": "serial in",
-    "z": "27da39bfea1cf2a6",
+    "z": "5fce40a6fa720026",
     "name": "Teensy USB",
-    "serial": "f83418fd7fd265fe",
+    "serial": "8a93b740a755f7ad",
     "x": 130,
     "y": 200,
     "wires": [
       [
-        "aca8bae4e185ecd6"
+        "f1db88303f9d3ab9"
       ]
     ]
   },
   {
-    "id": "aca8bae4e185ecd6",
+    "id": "f1db88303f9d3ab9",
     "type": "function",
-    "z": "27da39bfea1cf2a6",
+    "z": "5fce40a6fa720026",
     "name": "Parse BMS JSON",
-    "func": "// One line of serial output from the Teensy.\n// Only lines that start with '{' are the JSON telemetry (menu m -> j on the Teensy);\n// all other lines (menus, messages) are ignored.\nconst line = String(msg.payload || '').trim();\nif (!line.startsWith('{')) return null;\nlet d;\ntry {\n    d = JSON.parse(line);\n} catch (e) {\n    node.status({ fill: 'red', shape: 'ring', text: 'invalid JSON' });\n    return null;\n}\nd._ts = Date.now();\nflow.set('teensyLastData', d._ts);\nnode.status({ fill: 'green', shape: 'dot', text: `v${d.fw}  ${d.so}/${d.se} strings  ${d.lo}-${d.hi} V` });\n\n// Charts: one point every 10 seconds (the Teensy sends every 5 s)\nlet n = (context.get('n') || 0) + 1;\ncontext.set('n', n);\nlet cells = null, pack = null;\nif (n % 2 === 1) {\n    cells = [\n        { topic: 'Highest cell', payload: d.hi },\n        { topic: 'Lowest cell', payload: d.lo }\n    ];\n    pack = [\n        { topic: 'Battery voltage', payload: d.v },\n        { topic: 'CVL', payload: d.cvl }\n    ];\n}\nreturn [{ payload: d }, cells, pack];\n",
+    "func": "// One line of serial output from the Teensy.\n// Only lines that start with '{' are the JSON telemetry (menu m -> j on the Teensy);\n// all other lines (menus, messages) are ignored.\nconst line = String(msg.payload || '').trim();\nif (!line.startsWith('{')) return null;\nlet d;\ntry {\n    d = JSON.parse(line);\n} catch (e) {\n    node.status({ fill: 'red', shape: 'ring', text: 'invalid JSON' });\n    return null;\n}\nd._ts = Date.now();\nflow.set('teensyLastData', d._ts);\nflow.set('teensyFw', 'v' + d.fw);\nnode.status({ fill: 'green', shape: 'dot', text: `v${d.fw}  ${d.so}/${d.se} strings  ${d.lo}-${d.hi} V` });\n\n// Charts: one point every 10 seconds (the Teensy sends every 5 s)\nlet n = (context.get('n') || 0) + 1;\ncontext.set('n', n);\nlet cells = null, pack = null;\nif (n % 2 === 1) {\n    cells = [\n        { topic: 'Highest cell', payload: d.hi },\n        { topic: 'Lowest cell', payload: d.lo }\n    ];\n    pack = [\n        { topic: 'Battery voltage', payload: d.v },\n        { topic: 'CVL', payload: d.cvl }\n    ];\n}\nreturn [{ payload: d }, cells, pack];\n",
     "outputs": 3,
     "timeout": 0,
     "noerr": 0,
@@ -158,21 +165,21 @@
     ],
     "wires": [
       [
-        "3cd1deffc347b6d6"
+        "b9794042642ecf1f"
       ],
       [
-        "b9015c9abb520a1a"
+        "d44b1c1800e58ddb"
       ],
       [
-        "2c05887429d76ac5"
+        "2c18b1a69f3937fa"
       ]
     ]
   },
   {
-    "id": "3cd1deffc347b6d6",
+    "id": "b9794042642ecf1f",
     "type": "ui-template",
-    "z": "27da39bfea1cf2a6",
-    "group": "22795f7dc391f693",
+    "z": "5fce40a6fa720026",
+    "group": "0e369baf283f7dd4",
     "page": "",
     "ui": "",
     "name": "BMS overview",
@@ -193,10 +200,10 @@
     ]
   },
   {
-    "id": "b9015c9abb520a1a",
+    "id": "d44b1c1800e58ddb",
     "type": "ui-chart",
-    "z": "27da39bfea1cf2a6",
-    "group": "6f179b461260301f",
+    "z": "5fce40a6fa720026",
+    "group": "e15101525412685e",
     "name": "Cell min/max",
     "label": "Cell voltage lowest / highest",
     "order": 1,
@@ -254,10 +261,10 @@
     ]
   },
   {
-    "id": "2c05887429d76ac5",
+    "id": "2c18b1a69f3937fa",
     "type": "ui-chart",
-    "z": "27da39bfea1cf2a6",
-    "group": "6f179b461260301f",
+    "z": "5fce40a6fa720026",
+    "group": "e15101525412685e",
     "name": "Battery voltage / CVL",
     "label": "Battery voltage and CVL",
     "order": 2,
@@ -315,9 +322,9 @@
     ]
   },
   {
-    "id": "9215dea3e3cefb64",
+    "id": "6bf75e1b2a0e2b98",
     "type": "comment",
-    "z": "27da39bfea1cf2a6",
+    "z": "5fce40a6fa720026",
     "name": "Find Teensy port + VE_SERVICE=ignore (at start and every 60 s)",
     "info": "Looks up the Teensy via /dev/serial/by-id (name contains 'Teensy'), sets the serial port via the serial control node and makes sure VenusOS serial-starter leaves the Teensy alone (udev rule VE_SERVICE=ignore for USB-ID 16c0:0483). The rule is also written to /data/rc.local so it comes back automatically after a firmware update.",
     "x": 250,
@@ -325,9 +332,9 @@
     "wires": []
   },
   {
-    "id": "6d77f3645d8d35f9",
+    "id": "bdff7b450f0e2922",
     "type": "inject",
-    "z": "27da39bfea1cf2a6",
+    "z": "5fce40a6fa720026",
     "name": "start + every 60 s",
     "props": [
       {
@@ -345,14 +352,14 @@
     "y": 80,
     "wires": [
       [
-        "3d091e9909b188ba"
+        "dcd280ed9528145a"
       ]
     ]
   },
   {
-    "id": "3d091e9909b188ba",
+    "id": "dcd280ed9528145a",
     "type": "exec",
-    "z": "27da39bfea1cf2a6",
+    "z": "5fce40a6fa720026",
     "name": "find Teensy + ignore rule",
     "command": "P=$(ls /dev/serial/by-id/ 2>/dev/null | grep -i -m1 teensy); if [ -n \"$P\" ]; then echo \"PORT=/dev/serial/by-id/$P\"; else echo \"PORT=\"; fi\nR=/etc/udev/rules.d/zz-teslabms-teensy.rules\nL='ACTION==\"add\", SUBSYSTEM==\"tty\", ATTRS{idVendor}==\"16c0\", ATTRS{idProduct}==\"0483\", ENV{VE_SERVICE}=\"ignore\"'\nRW=/opt/victronenergy/swupdate-scripts/remount-rw.sh\nif [ -f \"$R\" ]; then echo \"UDEV=ok\"; else [ -x \"$RW\" ] && \"$RW\" >/dev/null 2>&1; if echo \"$L\" > \"$R\" 2>/dev/null; then udevadm control --reload-rules; udevadm trigger --action=add --subsystem-match=tty; echo \"UDEV=added\"; else echo \"UDEV=noperm\"; fi; fi\nif grep -q teslabms-teensy /data/rc.local 2>/dev/null; then echo \"RCLOCAL=ok\"; elif [ -w /data ]; then [ -f /data/rc.local ] || printf '#!/bin/sh\\n' > /data/rc.local; printf '%s\\n' \"# teslabms-teensy: VE_SERVICE=ignore for the Teensy (comes back after a firmware update)\" \"[ -f $R ] || { [ -x $RW ] && $RW; echo '$L' > $R; udevadm control --reload-rules; udevadm trigger --action=add --subsystem-match=tty; }\" >> /data/rc.local; chmod +x /data/rc.local; echo \"RCLOCAL=added\"; else echo \"RCLOCAL=noperm\"; fi",
     "addpay": "",
@@ -365,16 +372,16 @@
     "y": 80,
     "wires": [
       [
-        "492c759b76f396d7"
+        "d267a1a09c3963a8"
       ],
       [],
       []
     ]
   },
   {
-    "id": "492c759b76f396d7",
+    "id": "d267a1a09c3963a8",
     "type": "function",
-    "z": "27da39bfea1cf2a6",
+    "z": "5fce40a6fa720026",
     "name": "Set port",
     "func": "// Processes the output of the \"find Teensy\" script.\nconst out = String(msg.payload || '');\nconst get = (k) => { const m = out.match(new RegExp('^' + k + '=(.*)$', 'm')); return m ? m[1].trim() : ''; };\nconst port = get('PORT'), udev = get('UDEV'), rc = get('RCLOCAL');\nconst perm = (udev === 'noperm' || rc === 'noperm') ? '  (no rights: run install-teensy-ignore.sh once via SSH)' : '';\nif (!port) {\n    node.status({ fill: 'red', shape: 'ring', text: 'Teensy not found' + perm });\n    return null;\n}\nconst current = flow.get('teensyPort');\nconst last = flow.get('teensyLastData') || 0;\nconst silent = (Date.now() - last) > 60000;   // no data for 60 s -> reconnect\nnode.status({ fill: perm ? 'yellow' : 'green', shape: 'dot', text: port.replace('/dev/serial/by-id/', '') + '  udev:' + udev + '  rc.local:' + rc + perm });\nif (port !== current || silent) {\n    flow.set('teensyPort', port);\n    return { payload: { serialport: port, serialbaud: 115200 } };\n}\nreturn null;\n",
     "outputs": 1,
@@ -387,20 +394,257 @@
     "y": 80,
     "wires": [
       [
-        "fd29dcf13a4ac60d"
+        "5f8862805e4e5f39"
       ]
     ]
   },
   {
-    "id": "fd29dcf13a4ac60d",
+    "id": "5f8862805e4e5f39",
     "type": "serial control",
-    "z": "27da39bfea1cf2a6",
+    "z": "5fce40a6fa720026",
     "name": "Teensy port",
-    "serial": "f83418fd7fd265fe",
+    "serial": "8a93b740a755f7ad",
     "x": 770,
     "y": 80,
     "wires": [
       []
+    ]
+  },
+  {
+    "id": "93f98973d193cbc6",
+    "type": "ui-group",
+    "name": "Firmware & updates",
+    "page": "8b8819d7767f3d0e",
+    "width": "12",
+    "height": "1",
+    "order": 3,
+    "showTitle": true,
+    "className": "",
+    "visible": "true",
+    "disabled": "false",
+    "groupType": "default"
+  },
+  {
+    "id": "eebb922fcca50a40",
+    "type": "comment",
+    "z": "5fce40a6fa720026",
+    "name": "Firmware & dashboard updates (scripts in /data/teslabms, fetched from the latest GitHub release)",
+    "info": "",
+    "x": 330,
+    "y": 340,
+    "wires": []
+  },
+  {
+    "id": "497e76375b60510b",
+    "type": "ui-template",
+    "z": "5fce40a6fa720026",
+    "group": "93f98973d193cbc6",
+    "page": "",
+    "ui": "",
+    "name": "Updates",
+    "order": 1,
+    "width": "12",
+    "height": "0",
+    "head": "",
+    "format": "<template>\n  <div class=\"upd\">\n    <div class=\"rows\">\n      <div class=\"row\">\n        <span class=\"k\">Teensy firmware</span>\n        <span class=\"v\">{{ info.running || '-' }}</span>\n        <span class=\"k2\">latest</span>\n        <span class=\"v\">{{ info.latestFw || '-' }}</span>\n        <span v-if=\"fwNew\" class=\"badge\">update available</span>\n        <span v-else-if=\"info.latestFw && info.running\" class=\"ok\">up to date</span>\n      </div>\n      <div class=\"row\">\n        <span class=\"k\">Dashboard (flow)</span>\n        <span class=\"v\">{{ info.flowInstalled || '-' }}</span>\n        <span class=\"k2\">latest</span>\n        <span class=\"v\">{{ info.latestFlow || '-' }}</span>\n        <span v-if=\"flowNew\" class=\"badge\">update available</span>\n        <span v-else-if=\"info.latestFlow && info.flowInstalled\" class=\"ok\">up to date</span>\n      </div>\n    </div>\n    <div class=\"btns\">\n      <button @click=\"go('check')\">Check</button>\n      <button @click=\"go('fw')\" :class=\"{ hot: fwNew }\">Update Teensy firmware</button>\n      <button @click=\"go('flow')\" :class=\"{ hot: flowNew }\">Update dashboard</button>\n    </div>\n    <div v-if=\"state\" class=\"state\">{{ state }}</div>\n    <div v-if=\"info.error\" class=\"err\">{{ info.error }}</div>\n    <pre v-if=\"logText\" class=\"log\">{{ logText }}</pre>\n    <div class=\"hint\">Updates require a double click (confirmation within 10 s). During a firmware update the BMS is off for a few seconds; Victron stops charging/discharging and continues afterwards.</div>\n  </div>\n</template>\n\n<script>\nexport default {\n  data() {\n    return { info: {}, state: '', logText: '' }\n  },\n  computed: {\n    fwNew() { return !!(this.info.latestFw && this.info.running && this.info.latestFw !== this.info.running) },\n    flowNew() { return !!(this.info.latestFlow && this.info.flowInstalled && this.info.latestFlow !== this.info.flowInstalled) }\n  },\n  watch: {\n    msg: {\n      handler(m) {\n        if (!m || !m.payload) return\n        const p = m.payload\n        if (p.kind === 'info') this.info = Object.assign({}, this.info, p.info || {})\n        if (p.kind === 'state') this.state = p.text\n        if (p.kind === 'log') { this.logText = p.text; if (p.state) this.state = p.state }\n      },\n      immediate: true\n    }\n  },\n  methods: {\n    go(t) { this.send({ topic: t, payload: Date.now() }) }\n  }\n}\n</script>\n\n<style scoped>\n.upd { width: 100%; }\n.rows { display: grid; gap: 6px; margin-bottom: 10px; }\n.row { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }\n.k { min-width: 140px; opacity: 0.7; }\n.k2 { opacity: 0.6; font-size: 0.85em; }\n.v { font-weight: 600; font-variant-numeric: tabular-nums; }\n.badge { padding: 2px 8px; border-radius: 10px; background: rgba(210, 153, 34, 0.22); color: #b7791f; font-weight: 600; font-size: 0.85em; }\n.ok { color: #2ea043; font-size: 0.85em; font-weight: 600; }\n.btns { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }\n.btns button { padding: 7px 14px; border-radius: 6px; border: 1px solid rgba(127, 127, 127, 0.4); background: rgba(127, 127, 127, 0.08); cursor: pointer; font: inherit; color: inherit; }\n.btns button:hover { background: rgba(127, 127, 127, 0.18); }\n.btns button.hot { border-color: #b7791f; background: rgba(210, 153, 34, 0.18); }\n.state { font-weight: 600; margin: 6px 0; }\n.err { color: #da3633; margin: 6px 0; }\n.log { max-height: 220px; overflow: auto; font-size: 0.8em; background: rgba(127, 127, 127, 0.08); padding: 8px; border-radius: 6px; white-space: pre-wrap; }\n.hint { font-size: 0.8em; opacity: 0.65; margin-top: 6px; }\n</style>\n",
+    "storeOutMessages": true,
+    "passthru": false,
+    "resendOnRefresh": true,
+    "templateScope": "local",
+    "className": "",
+    "x": 150,
+    "y": 400,
+    "wires": [
+      [
+        "0419efdadb7ad93b"
+      ]
+    ]
+  },
+  {
+    "id": "77fa39155687e451",
+    "type": "inject",
+    "z": "5fce40a6fa720026",
+    "name": "check at start + every 6 h",
+    "props": [
+      {
+        "p": "topic",
+        "vt": "str"
+      }
+    ],
+    "repeat": "21600",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "30",
+    "topic": "check",
+    "x": 170,
+    "y": 460,
+    "wires": [
+      [
+        "0419efdadb7ad93b"
+      ]
+    ]
+  },
+  {
+    "id": "0419efdadb7ad93b",
+    "type": "function",
+    "z": "5fce40a6fa720026",
+    "name": "Router (check / double click)",
+    "func": "// Buttons from the \"Updates\" template and the periodic check.\n// Updates need a double click: the second click must come within 10 s.\nconst now = Date.now();\nconst t = msg.topic;\nconst ui = (text) => ({ payload: { kind: 'state', text: text } });\nif (t === 'check') {\n    return [{ payload: '' }, null, null, ui('Checking versions...')];\n}\nif (t === 'fw' || t === 'flow') {\n    if (flow.get('teslabmsBusy')) return [null, null, null, ui('An update is already running - please wait')];\n    const armed = context.get('armed') || {};\n    if (armed.t === t && (now - armed.at) < 10000) {\n        context.set('armed', {});\n        flow.set('teslabmsBusy', true);\n        if (t === 'fw') {\n            node.status({ fill: 'yellow', shape: 'dot', text: 'flashing Teensy...' });\n            return [null, { payload: '' }, null, ui('Teensy firmware update running (BMS off for a few seconds)...')];\n        }\n        node.status({ fill: 'yellow', shape: 'dot', text: 'updating dashboard...' });\n        return [null, null, { payload: '' }, ui('Dashboard update running - Node-RED restarts; reload this page after about 30 s.')];\n    }\n    context.set('armed', { t: t, at: now });\n    const name = t === 'fw' ? 'Update Teensy firmware' : 'Update dashboard';\n    return [null, null, null, ui('Click \"' + name + '\" again within 10 seconds to confirm.')];\n}\nreturn null;\n",
+    "outputs": 4,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 400,
+    "y": 420,
+    "wires": [
+      [
+        "d0d097b22462fba3"
+      ],
+      [
+        "a78622e26a4bce36"
+      ],
+      [
+        "5d6c2f11c61d8816"
+      ],
+      [
+        "497e76375b60510b"
+      ]
+    ]
+  },
+  {
+    "id": "d0d097b22462fba3",
+    "type": "exec",
+    "z": "5fce40a6fa720026",
+    "name": "check versions",
+    "command": "mkdir -p /data/teslabms && cd /data/teslabms && python3 -c \"\nimport urllib.request, os\nfor f in ('teensy_flash.py', 'flow_update.py'):\n    u = 'https://github.com/AncoDiara/TeslaBMSV2.1/releases/latest/download/' + f\n    try:\n        d = urllib.request.urlopen(urllib.request.Request(u, headers={'User-Agent': 'teslabms'}), timeout=30).read()\n        open(f + '.tmp', 'wb').write(d); os.replace(f + '.tmp', f)\n    except Exception as e:\n        print('DL-ERROR', f, e)\n\"; echo \"FW=$(python3 teensy_flash.py --check --no-serial 2>/dev/null)\"; echo \"FLOW=$(python3 flow_update.py --check 2>/dev/null)\"",
+    "addpay": "",
+    "append": "",
+    "useSpawn": "false",
+    "timer": "120",
+    "winHide": false,
+    "oldrc": false,
+    "x": 640,
+    "y": 380,
+    "wires": [
+      [
+        "1854d61090a0399e"
+      ],
+      [],
+      []
+    ]
+  },
+  {
+    "id": "1854d61090a0399e",
+    "type": "function",
+    "z": "5fce40a6fa720026",
+    "name": "Process check",
+    "func": "// Output of \"check versions\": lines FW=<json> and FLOW=<json>.\nconst out = String(msg.payload || '');\nconst grab = (k) => {\n    const m = out.match(new RegExp('^' + k + '=(.*)$', 'm'));\n    if (!m) return null;\n    try { return JSON.parse(m[1]); } catch (e) { return null; }\n};\nconst fw = grab('FW') || {};\nconst fl = grab('FLOW') || {};\nconst info = {\n    running: flow.get('teensyFw') || fw.running || null,     // from the JSON output of the Teensy\n    latestFw: fw.latest || null,\n    flowInstalled: env.get('TESLABMS_FLOW_VERSION') || fl.installed || null,\n    latestFlow: fl.latest || null,\n    error: fw.error || fl.error || (out.includes('DL-ERROR') ? 'Download of the update scripts failed (internet?)' : null)\n};\nnode.status({ fill: info.error ? 'red' : 'green', shape: 'dot', text: 'fw ' + info.running + ' / ' + info.latestFw + ', flow ' + info.flowInstalled + ' / ' + info.latestFlow });\nreturn { payload: { kind: 'info', info: info } };\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 850,
+    "y": 380,
+    "wires": [
+      [
+        "497e76375b60510b"
+      ]
+    ]
+  },
+  {
+    "id": "a78622e26a4bce36",
+    "type": "exec",
+    "z": "5fce40a6fa720026",
+    "name": "flash Teensy",
+    "command": "python3 /data/teslabms/teensy_flash.py --latest --yes --no-serial 2>&1",
+    "addpay": "",
+    "append": "",
+    "useSpawn": "false",
+    "timer": "300",
+    "winHide": false,
+    "oldrc": false,
+    "x": 640,
+    "y": 440,
+    "wires": [
+      [
+        "a5421c1019542e8d"
+      ],
+      [],
+      []
+    ]
+  },
+  {
+    "id": "a5421c1019542e8d",
+    "type": "function",
+    "z": "5fce40a6fa720026",
+    "name": "Process update",
+    "func": "// Result of \"flash Teensy\" or \"update dashboard\".\nflow.set('teslabmsBusy', false);\nconst out = String(msg.payload || '').trim();\nconst failed = /ERROR/.test(out) || (msg.rc && msg.rc.code);\nconst state = failed ? 'Update FAILED - see the log below' : 'Update finished';\n// after 25 s check the versions again (the Teensy has to start up first)\nreturn [{ payload: { kind: 'log', text: out, state: state } }, { topic: 'check' }];\n",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 850,
+    "y": 460,
+    "wires": [
+      [
+        "497e76375b60510b"
+      ],
+      [
+        "b61a6c71a01a5390"
+      ]
+    ]
+  },
+  {
+    "id": "5d6c2f11c61d8816",
+    "type": "exec",
+    "z": "5fce40a6fa720026",
+    "name": "update dashboard",
+    "command": "python3 /data/teslabms/flow_update.py --latest --yes 2>&1",
+    "addpay": "",
+    "append": "",
+    "useSpawn": "false",
+    "timer": "120",
+    "winHide": false,
+    "oldrc": false,
+    "x": 640,
+    "y": 500,
+    "wires": [
+      [
+        "a5421c1019542e8d"
+      ],
+      [],
+      []
+    ]
+  },
+  {
+    "id": "b61a6c71a01a5390",
+    "type": "delay",
+    "z": "5fce40a6fa720026",
+    "name": "25 s",
+    "pauseType": "delay",
+    "timeout": "25",
+    "timeoutUnits": "seconds",
+    "rate": "1",
+    "nbRateUnits": "1",
+    "rateUnits": "second",
+    "randomFirst": "1",
+    "randomLast": "5",
+    "randomUnits": "seconds",
+    "drop": false,
+    "allowrate": false,
+    "outputs": 1,
+    "x": 1030,
+    "y": 480,
+    "wires": [
+      [
+        "0419efdadb7ad93b"
+      ]
     ]
   }
 ]

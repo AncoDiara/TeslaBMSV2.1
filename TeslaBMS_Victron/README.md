@@ -119,6 +119,10 @@ alarms. The folder [`nodered/`](nodered/) contains a ready-made flow for FlowFus
 finds the Teensy port by itself and makes VenusOS serial-starter ignore it (also after a firmware
 update). See [nodered/README.md](nodered/README.md).
 
+The dashboard can also **update the Teensy firmware and itself** (buttons in the block *Firmware &
+updates*). Every commit is compiled by GitHub Actions with the official Teensy core and published
+as a release `v<year>.<build>` with the `.hex`, the Node-RED flow and the Cerbo scripts.
+
 ![Dashboard preview (simulated data)](nodered/dashboard-preview.png)
 
 ## Serial menu

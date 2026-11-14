@@ -42,3 +42,37 @@ When the GX restarts the Teensy restarts as well and counts the modules again.
 a read round (ms), `lo`/`hi` + `loid`/`hiid` lowest/highest cell, `tlo`/`thi` temperatures,
 `ovl` overvoltage latch, `mw`/`ma` module warning/alarm, `alm`/`wrn` alarm bytes of 0x35A,
 `mod[]` per module: `a` address, `s` string, `on`, `v`, `c[6]` cells, `t[2]` temperatures, `b` balance mask.
+
+## Updates from the dashboard (firmware and the dashboard itself)
+
+The block **Firmware & updates** shows the running Teensy firmware, the dashboard version and the
+latest version on GitHub (checked at start and every 6 hours, or with **Check**).
+
+- **Update Teensy firmware** (click twice within 10 s): fetches the `.hex` of the latest GitHub release
+  (built by GitHub Actions with the official Teensy core, SHA256 checked) and flashes it via USB.
+  The BMS is off for a few seconds; Victron stops charging/discharging and continues afterwards.
+- **Update dashboard** (click twice within 10 s): replaces only the *Tesla BMS* tab with the latest
+  version (backup of the flows file first), then Node-RED restarts. Reload the page after ~30 s.
+  Other flows and an existing Dashboard 2.0 base are left untouched.
+
+The scripts (`teensy_flash.py`, `flow_update.py`) are kept in `/data/teslabms/` and are refreshed
+from the latest release at every check.
+
+### First time (from an older dashboard without the update block)
+Via SSH as root on the GX:
+```bash
+mkdir -p /data/teslabms && cd /data/teslabms && python3 -c "import urllib.request as u
+for f in ('teensy_flash.py','flow_update.py'):
+    open(f,'wb').write(u.urlopen(u.Request('https://github.com/AncoDiara/TeslaBMSV2.1/releases/latest/download/'+f,headers={'User-Agent':'teslabms'})).read())"
+python3 flow_update.py --latest
+```
+This replaces the old Tesla BMS tab (also an old version with other node IDs) and restarts Node-RED.
+
+### By hand via SSH
+```bash
+python3 /data/teslabms/teensy_flash.py --check            # versions
+python3 /data/teslabms/teensy_flash.py --latest           # flash the Teensy (asks for confirmation)
+python3 /data/teslabms/flow_update.py --latest            # update the dashboard (asks for confirmation)
+```
+If flashing is interrupted, the Teensy stays in its bootloader (BMS off): run it again, or press the
+button on the Teensy and use the Teensy Loader / Arduino IDE on a PC.
