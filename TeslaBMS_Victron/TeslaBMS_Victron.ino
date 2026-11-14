@@ -3632,6 +3632,18 @@ case 'r':  //r for reset
     }
   }
 
+  // NEW: direct commands outside the menu (used by the Node-RED dashboard):
+  //   'J' = JSON output on (and save), 'T' = back to text output (and save)
+  if (menuload == 0 && (incomingByte == 'J' || incomingByte == 'T'))
+  {
+    settings.JsonOut = (incomingByte == 'J') ? 1 : 0;
+    debug = (settings.JsonOut == 1) ? 0 : 1;
+    EEPROM.put(0, settings);
+    SERIALCONSOLE.println();
+    SERIALCONSOLE.println(settings.JsonOut ? "JSON output on" : "JSON output off (text)");
+    jsonTimer = 0; // send immediately
+  }
+
   if (incomingByte == 115 && menuload == 0)
   {
     SERIALCONSOLE.println();
@@ -3656,6 +3668,7 @@ case 'r':  //r for reset
     SERIALCONSOLE.println("i - Ignore Value Settings");
     SERIALCONSOLE.println("d - Debug Settings");
     SERIALCONSOLE.println("m - Modules & Strings");
+    SERIALCONSOLE.println("J / T - (outside the menu) JSON output on / back to text");
     SERIALCONSOLE.println("x - Experimental Settings");
     SERIALCONSOLE.println("R - Restart BMS");
     SERIALCONSOLE.println("q - exit menu");

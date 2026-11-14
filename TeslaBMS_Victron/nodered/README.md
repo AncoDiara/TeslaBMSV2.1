@@ -3,9 +3,11 @@
 Connect the Teensy's USB to a USB port of the Cerbo GX (or another Venus OS Large device).
 The Teensy then sends one JSON line every 5 seconds with all cell voltages, balancing, limits and alarms.
 
-## 1. Teensy: switch JSON output on
-Serial monitor (115200 baud): `s` → `m` → `j` (JSON output **On**) → `q` to save.
-While a menu is open the JSON pauses; the menu closes by itself after 2 minutes without input.
+## 1. Teensy: JSON output (automatic)
+The flow switches the JSON output on by itself: if no JSON arrives for 20 s it sends `J` to the
+Teensy (JSON on, saved in the Teensy). `T` switches back to text output. By hand: serial monitor
+(115200 baud) `s` → `m` → `j`. While a menu is open the JSON pauses; the menu closes by itself
+after 2 minutes without input.
 
 ## 2. Node-RED: palette
 Install via *Manage palette* (if not already present):
@@ -45,7 +47,7 @@ a read round (ms), `lo`/`hi` + `loid`/`hiid` lowest/highest cell, `tlo`/`thi` te
 
 ## Updates from the dashboard (firmware and the dashboard itself)
 
-The block **Firmware & updates** shows the running Teensy firmware, the dashboard version and the
+The collapsible block **Maintenance & updates** (closed by default, click the title) shows the running Teensy firmware, the dashboard version and the
 latest version on GitHub (checked at start and every 6 hours, or with **Check**).
 
 - **Update Teensy firmware** (click twice within 10 s): fetches the `.hex` of the latest GitHub release
