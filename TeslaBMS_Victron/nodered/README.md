@@ -38,6 +38,11 @@ Check (SSH): `udevadm info /dev/ttyACM0 | grep VE_SERVICE` should show `VE_SERVI
 In this setup the Teensy is powered only from USB: the BMS runs as long as the GX is on.
 When the GX restarts the Teensy restarts as well and counts the modules again.
 
+## CVL tile and DVCC limit
+The CVL tile shows the CVL calculated by the BMS (Teensy). Below it: the
+**DVCC "Limit charge voltage"** setting of the GX (Settings → DVCC), read every 30 s from dbus
+(`com.victronenergy.settings /Settings/SystemSetup/MaxChargeVoltage`). `off` = limit not set.
+
 ## JSON fields
 `fw` version, `st` status, `cvl`/`ccl`/`dcl`, `v` battery voltage, `i` current, `soc`,
 `so`/`se` strings online/expected, `mo`/`me` modules, `bal` cells balancing, `lt` duration of
