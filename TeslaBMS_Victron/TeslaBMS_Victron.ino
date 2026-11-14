@@ -35,7 +35,7 @@
   - Missing module/string: no Error, CVL/CCL/DCL keep being sent.
       * immediately: warning "BMS internal" in 0x35A
       * after ModuleAlarmDelay seconds: alarm "BMS internal" in 0x35A
-      * 0x372: strings online / strings offline (VenusOS: 1 string = 1 battery)
+      * 0x372: modules online / offline (physical number of Tesla modules)
       * CCL/DCL scaled with strings online (setting ScaleLimits)
       * every 30 s an automatic search for the missing modules
   - 0x355 SOC high resolution (0.01%) fixed (was a factor 10 too low).
@@ -2247,15 +2247,21 @@ void VEcan() //communication with Victron system over CAN
 
   msg.id  = 0x372;
   msg.len = 8;
-  // NEW: VenusOS counts strings as "modules" (1 string = 1 battery)
-  msg.buf[0] = lowByte(uint16_t(bms.getStringsOnline()));   // modules online
-  msg.buf[1] = highByte(uint16_t(bms.getStringsOnline()));
-  msg.buf[2] = lowByte(uint16_t(chargecurrent == 0 ? bms.getStringsOnline() : 0));  // blocking charge
-  msg.buf[3] = highByte(uint16_t(chargecurrent == 0 ? bms.getStringsOnline() : 0));
-  msg.buf[4] = lowByte(uint16_t(discurrent == 0 ? bms.getStringsOnline() : 0));     // blocking discharge
-  msg.buf[5] = highByte(uint16_t(discurrent == 0 ? bms.getStringsOnline() : 0));
-  msg.buf[6] = lowByte(uint16_t(bms.getStringsOffline()));  // modules offline
-  msg.buf[7] = highByte(uint16_t(bms.getStringsOffline()));
+  // VenusOS "modules online/offline": the PHYSICAL number of Tesla modules (Anco 2026-11-14),
+  // regardless of 24 V or 48 V. (The control itself works per string.)
+  {
+    uint16_t modOn = bms.getModulesOnline();
+    uint16_t modExp = bms.getExpectedModules();
+    uint16_t modOff = (modExp > modOn) ? (modExp - modOn) : 0;
+    msg.buf[0] = lowByte(modOn);                                   // modules online
+    msg.buf[1] = highByte(modOn);
+    msg.buf[2] = lowByte(uint16_t(chargecurrent == 0 ? modOn : 0)); // blocking charge
+    msg.buf[3] = highByte(uint16_t(chargecurrent == 0 ? modOn : 0));
+    msg.buf[4] = lowByte(uint16_t(discurrent == 0 ? modOn : 0));    // blocking discharge
+    msg.buf[5] = highByte(uint16_t(discurrent == 0 ? modOn : 0));
+    msg.buf[6] = lowByte(modOff);                                  // modules offline
+    msg.buf[7] = highByte(modOff);
+  }
   Can0.write(msg);
 
 }

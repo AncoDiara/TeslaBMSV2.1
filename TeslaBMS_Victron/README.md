@@ -53,7 +53,7 @@ Modules are grouped into **strings** (modules in series), and the strings are co
 | 0x35E | `Claude T` (must equal the first 8 characters of 0x370) |
 | 0x35F | Firmware version `v<year>.<build>` from `version.h` (e.g. v26.7), capacity in Ah; sent every second |
 | 0x370 + 0x371 | Battery name: `Claude Tesla BMS` |
-| 0x372 | **Strings** online / offline (VenusOS shows 1 string as 1 "module"), blocking charge/discharge |
+| 0x372 | **Modules** online / offline: the physical number of Tesla modules (24 modules = 24, at 24 V and at 48 V), blocking charge/discharge |
 | 0x373 | Min/max cell voltage and temperature |
 | 0x374 / 0x375 | **Which cell** has the lowest / highest voltage, e.g. `Pk3 C5` = pack (module) 3, cell 5; sent every second |
 | 0x376 / 0x377 | Which temperature sensor is the coldest / warmest, e.g. `Pk2 T1` |
