@@ -36,6 +36,9 @@ Modules are grouped into **strings** (modules in series), and the strings are co
   So wire the comm chain string by string.
 - **Auto-detect (default on):** at every start the modules are renumbered in chain order and counted.
   Number of strings = modules found / modules per string (rounded up, so a half 48 V string shows up as offline).
+- Switching between 24 V and 48 V: only change Scells (menu `b` → `a`). With auto-detect on, the
+  number of strings is recalculated immediately from the modules found (e.g. 6 modules: 6S → 6 strings,
+  12S → 3 strings) and the CVL restarts from its new maximum.
 - Auto-detect off (menu `m` → `a`): fixed number via menu `b` → `0`. Missing modules then give an alarm already at startup.
 - The Tesla comm bus is a daisy chain: if one module board fails, the modules after it are unreachable too.
 
@@ -82,7 +85,9 @@ Modules are grouped into **strings** (modules in series), and the strings are co
   voltage + 0.1 V (a CVL far above the battery voltage limits nothing) and then drops by at most
   **0.1 V per second**, towards *battery voltage − excess of that cell*, so the chargers hold the
   voltage neatly and that cell stays at the target
-- when the highest cell is more than 10 mV below the target again, the CVL rises slowly (0.01 V/s)
+- when the highest cell is 10–50 mV below the target again, the CVL rises slowly (0.01 V/s);
+  more than 50 mV below the target (nowhere near full, or after switching 24 V → 48 V) the CVL goes
+  straight to its maximum
 - no fixed lower limit: with a badly balanced pack (e.g. five cells at 3.50 V and one at 4.15 V) the CVL
   goes as low as needed; only a safety net against a wrong measurement: `UnderVSetpoint` × Scells
 - can be switched off (old behaviour: fixed CVL, CCL taper): menu `m` → `v`

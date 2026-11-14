@@ -85,6 +85,7 @@ unsigned long essUnderTimer = 0, essOverTimer = 0; // separate timers for the ES
 #define CVL_DOWN_RATE 0.10f   // V per second lowering as long as the highest cell is above the charge voltage
 #define CVL_UP_RATE   0.01f   // V per second raising again when there is room (slow, prevents hunting)
 #define CVL_BAND      0.010f  // V per cell: raise only when the highest cell is this far below the target
+#define CVL_FAR_BAND  0.050f  // V per cell: highest cell this far below the target -> CVL straight to the maximum
 #define CVL_START_MARGIN 0.10f // V: when lowering, start no higher than battery voltage + this margin
 #define OV_RELEASE    0.050f  // V per cell: CCL=0 due to overvoltage is released below OverV - this value
 float cvlActual = 0.0f;       // V, the CVL sent to Victron
@@ -351,20 +352,40 @@ void loadNewSettings()
 void autoDetectTopology()
 {
   bms.renumberBoardIDs();
-  int found = bms.getNumModules();
-  int mps = bms.getModulesPerString();
-  int strings = (found + mps - 1) / mps;
-  if (strings < 1) strings = 1;
-  settings.Pstrings = strings;
-  bms.setTopology(settings.Scells, settings.Pstrings);
   bms.setSensors(settings.IgnoreTemp, settings.IgnoreVolt);
+  applyTopology();
+}
+
+/*
+  NEW: apply the topology after a change of Scells (or at startup).
+  With auto-detect ON the number of strings follows from the modules found:
+  strings = found modules / (Scells/6), rounded up. So switching from 24 V (6S) to
+  48 V (12S) only requires changing Scells: 6 modules -> 6 strings becomes 3 strings.
+  The CVL control is also restarted (new maximum CVL).
+*/
+void applyTopology()
+{
+  if (settings.Scells < 6) settings.Scells = 6;
+  settings.Scells = (settings.Scells / 6) * 6;   // Tesla module = 6 cells
+  int mps = settings.Scells / 6;
+  if (settings.AutoTopology == 1)
+  {
+    int found = bms.getNumModules();
+    int strings = (found + mps - 1) / mps;
+    if (strings < 1) strings = 1;
+    settings.Pstrings = strings;
+    SERIALCONSOLE.println();
+    SERIALCONSOLE.print("Auto-detect: ");
+    SERIALCONSOLE.print(found);
+    SERIALCONSOLE.print(" module(s), ");
+    SERIALCONSOLE.print(mps);
+    SERIALCONSOLE.print(" per string -> ");
+    SERIALCONSOLE.print(strings);
+    SERIALCONSOLE.println(" string(s)");
+  }
+  bms.setTopology(settings.Scells, settings.Pstrings);
   bms.updateStringStatus();
-  SERIALCONSOLE.println();
-  SERIALCONSOLE.print("Auto-detect: ");
-  SERIALCONSOLE.print(found);
-  SERIALCONSOLE.print(" module(s) found -> ");
-  SERIALCONSOLE.print(strings);
-  SERIALCONSOLE.println(" string(s)");
+  cvlActual = 0.0f;   // CVL control starts again from the new maximum value
   bms.printTopology();
 }
 
@@ -2897,8 +2918,12 @@ case 'r':  //r for reset
           if (settings.Pstrings < 1) settings.Pstrings = 1;
           menuload = 1;
           incomingByte = 'b';
-          bms.setTopology(settings.Scells, settings.Pstrings);
-          bms.updateStringStatus();
+          if (settings.AutoTopology == 1)
+          {
+            SERIALCONSOLE.println("Note: auto-detect is on, the number of strings follows from the modules found.");
+            SERIALCONSOLE.println("      For a fixed number: switch auto-detect off in menu m -> a.");
+          }
+          applyTopology();
         }
         break;
 
@@ -2906,11 +2931,9 @@ case 'r':  //r for reset
         if (Serial.available() > 0)
         {
           settings.Scells  = Serial.parseInt();
-          if (settings.Scells < 6) settings.Scells = 6;
           menuload = 1;
           incomingByte = 'b';
-          bms.setTopology(settings.Scells, settings.Pstrings);
-          bms.updateStringStatus();
+          applyTopology();   // with auto-detect: number of strings is recalculated immediately
         }
         break;
 
@@ -3797,7 +3820,8 @@ void printKeySettings()
     (0.1 V/s) to (battery voltage - excess of that cell), so that this cell goes
     back to the target. The Victron chargers then neatly hold the
     voltage; the CCL stays open.
-  - Is the highest cell CVL_BAND below the target again, the CVL rises slowly (CVL_UP_RATE).
+  - Is the highest cell CVL_BAND below the target again, the CVL rises slowly (CVL_UP_RATE);
+    is it more than CVL_FAR_BAND (50 mV) below the target, the CVL goes straight to the maximum.
   - Upper limit: ChargeVsetpoint x Scells. Lower limit only as a safety net: UnderVSetpoint x Scells.
   - CCL = 0 only at real overvoltage (OverVSetpoint, see currentlimit()).
 */
@@ -3840,8 +3864,15 @@ void cvlControl()
         if (cvlActual < cvlGoal) cvlActual = cvlGoal;
       }
     }
+    else if (hc < cellTarget - CVL_FAR_BAND)
+    {
+      // nowhere near full: no reason to hold back, straight to the maximum
+      // (e.g. after a switch from 24 V to 48 V, or after the battery was discharged)
+      cvlActual = cvlMax;
+    }
     else if (hc < cellTarget - CVL_BAND)
     {
+      // close to full: raise slowly again (prevents hunting)
       cvlActual += CVL_UP_RATE * dt;
     }
   }
