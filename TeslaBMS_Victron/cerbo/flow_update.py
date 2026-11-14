@@ -244,6 +244,11 @@ def main():
     tmp = flows_path + ".tmp"
     with open(tmp, "w") as f:
         json.dump(merged, f, indent=4)
+    st = os.stat(flows_path)
+    if os.getuid() == 0:                      # run as root via SSH: keep Node-RED (user nodered) the owner
+        os.chown(tmp, st.st_uid, st.st_gid)
+        os.chown(backup, st.st_uid, st.st_gid)
+    os.chmod(tmp, st.st_mode & 0o777)
     os.replace(tmp, flows_path)
     log("Flow written.")
     if a.no_restart:

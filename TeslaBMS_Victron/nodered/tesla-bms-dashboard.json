@@ -7,7 +7,7 @@
     "env": [
       {
         "name": "TESLABMS_FLOW_VERSION",
-        "value": "v26.16",
+        "value": "v26.17",
         "type": "str"
       }
     ],
