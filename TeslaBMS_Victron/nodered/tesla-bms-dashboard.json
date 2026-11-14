@@ -7,7 +7,7 @@
     "env": [
       {
         "name": "TESLABMS_FLOW_VERSION",
-        "value": "v26.15",
+        "value": "v26.16",
         "type": "str"
       }
     ],
@@ -361,7 +361,7 @@
     "type": "exec",
     "z": "5fce40a6fa720026",
     "name": "find Teensy + ignore rule",
-    "command": "P=$(ls /dev/serial/by-id/ 2>/dev/null | grep -i -m1 teensy); if [ -n \"$P\" ]; then echo \"PORT=/dev/serial/by-id/$P\"; else echo \"PORT=\"; fi\nR=/etc/udev/rules.d/zz-teslabms-teensy.rules\nL='ACTION==\"add\", SUBSYSTEM==\"tty\", ATTRS{idVendor}==\"16c0\", ATTRS{idProduct}==\"0483\", ENV{VE_SERVICE}=\"ignore\"'\nRW=/opt/victronenergy/swupdate-scripts/remount-rw.sh\nif [ -f \"$R\" ]; then echo \"UDEV=ok\"; else [ -x \"$RW\" ] && \"$RW\" >/dev/null 2>&1; if echo \"$L\" > \"$R\" 2>/dev/null; then udevadm control --reload-rules; udevadm trigger --action=add --subsystem-match=tty; echo \"UDEV=added\"; else echo \"UDEV=noperm\"; fi; fi\nif grep -q teslabms-teensy /data/rc.local 2>/dev/null; then echo \"RCLOCAL=ok\"; elif [ -w /data ]; then [ -f /data/rc.local ] || printf '#!/bin/sh\\n' > /data/rc.local; printf '%s\\n' \"# teslabms-teensy: VE_SERVICE=ignore for the Teensy (comes back after a firmware update)\" \"[ -f $R ] || { [ -x $RW ] && $RW; echo '$L' > $R; udevadm control --reload-rules; udevadm trigger --action=add --subsystem-match=tty; }\" >> /data/rc.local; chmod +x /data/rc.local; echo \"RCLOCAL=added\"; else echo \"RCLOCAL=noperm\"; fi",
+    "command": "P=$(ls /dev/serial/by-id/ 2>/dev/null | grep -i -m1 teensy); if [ -n \"$P\" ]; then echo \"PORT=/dev/serial/by-id/$P\"; else echo \"PORT=\"; fi\nR=/etc/udev/rules.d/zz-teslabms-teensy.rules\nRW=/opt/victronenergy/swupdate-scripts/remount-rw.sh\nif grep -q 0478 \"$R\" 2>/dev/null; then echo \"UDEV=ok\"; else [ -x \"$RW\" ] && \"$RW\" >/dev/null 2>&1; if printf '%s\\n' 'ACTION==\"add\", SUBSYSTEM==\"tty\", ATTRS{idVendor}==\"16c0\", ATTRS{idProduct}==\"0483\", ENV{VE_SERVICE}=\"ignore\"' 'SUBSYSTEM==\"hidraw\", ATTRS{idVendor}==\"16c0\", ATTRS{idProduct}==\"0478\", MODE=\"0666\"' > \"$R\" 2>/dev/null; then udevadm control --reload-rules; udevadm trigger --action=add --subsystem-match=tty; echo \"UDEV=added\"; else echo \"UDEV=noperm\"; fi; fi\nif grep -q teslabms-teensy-v2 /data/rc.local 2>/dev/null; then echo \"RCLOCAL=ok\"; elif [ -w /data/rc.local ] || { [ ! -e /data/rc.local ] && [ -w /data ]; }; then [ -f /data/rc.local ] || printf '#!/bin/sh\\n' > /data/rc.local; sed -i '/teslabms-teensy/d' /data/rc.local; printf '%s\\n' \"# teslabms-teensy-v2: VE_SERVICE=ignore + bootloader access for the Teensy (comes back after a firmware update)\" \"grep -q 0478 $R 2>/dev/null || { [ -x $RW ] && $RW; printf '%s\\\\n' 'ACTION==\\\"add\\\", SUBSYSTEM==\\\"tty\\\", ATTRS{idVendor}==\\\"16c0\\\", ATTRS{idProduct}==\\\"0483\\\", ENV{VE_SERVICE}=\\\"ignore\\\"' 'SUBSYSTEM==\\\"hidraw\\\", ATTRS{idVendor}==\\\"16c0\\\", ATTRS{idProduct}==\\\"0478\\\", MODE=\\\"0666\\\"' > $R; udevadm control --reload-rules; udevadm trigger --action=add --subsystem-match=tty; } # teslabms-teensy\" >> /data/rc.local; chmod +x /data/rc.local; echo \"RCLOCAL=added\"; else echo \"RCLOCAL=noperm\"; fi",
     "addpay": "",
     "append": "",
     "useSpawn": "false",
@@ -518,7 +518,7 @@
     "type": "exec",
     "z": "5fce40a6fa720026",
     "name": "check versions",
-    "command": "mkdir -p /data/teslabms && cd /data/teslabms && python3 -c \"\nimport urllib.request, os\nfor f in ('teensy_flash.py', 'flow_update.py'):\n    u = 'https://github.com/AncoDiara/TeslaBMSV2.1/releases/latest/download/' + f\n    try:\n        d = urllib.request.urlopen(urllib.request.Request(u, headers={'User-Agent': 'teslabms'}), timeout=30).read()\n        open(f + '.tmp', 'wb').write(d); os.replace(f + '.tmp', f)\n    except Exception as e:\n        print('DL-ERROR', f, e)\n\"; echo \"FW=$(python3 teensy_flash.py --check --no-serial 2>/dev/null)\"; echo \"FLOW=$(python3 flow_update.py --check 2>/dev/null)\"",
+    "command": "D=/data/teslabms; mkdir -p $D 2>/dev/null; [ -w $D ] || { D=${HOME:-/data/home/nodered}/teslabms; mkdir -p $D; }; cd $D && echo \"DIR=$D\" && python3 -c \"\nimport urllib.request, os\nfor f in ('teensy_flash.py', 'flow_update.py'):\n    u = 'https://github.com/AncoDiara/TeslaBMSV2.1/releases/latest/download/' + f\n    try:\n        d = urllib.request.urlopen(urllib.request.Request(u, headers={'User-Agent': 'teslabms'}), timeout=30).read()\n        open(f + '.tmp', 'wb').write(d); os.replace(f + '.tmp', f)\n    except Exception as e:\n        print('DL-ERROR', f, e)\n\"; echo \"FW=$(python3 teensy_flash.py --check --no-serial 2>/dev/null)\"; echo \"FLOW=$(python3 flow_update.py --check 2>/dev/null)\"",
     "addpay": "",
     "append": "",
     "useSpawn": "false",
@@ -540,7 +540,7 @@
     "type": "function",
     "z": "5fce40a6fa720026",
     "name": "Process check",
-    "func": "// Output of \"check versions\": lines FW=<json> and FLOW=<json>.\nconst out = String(msg.payload || '');\nconst grab = (k) => {\n    const m = out.match(new RegExp('^' + k + '=(.*)$', 'm'));\n    if (!m) return null;\n    try { return JSON.parse(m[1]); } catch (e) { return null; }\n};\nconst fw = grab('FW') || {};\nconst fl = grab('FLOW') || {};\nconst info = {\n    running: flow.get('teensyFw') || fw.running || null,     // from the JSON output of the Teensy\n    latestFw: fw.latest || null,\n    flowInstalled: env.get('TESLABMS_FLOW_VERSION') || fl.installed || null,\n    latestFlow: fl.latest || null,\n    error: fw.error || fl.error || (out.includes('DL-ERROR') ? 'Download of the update scripts failed (internet?)' : null)\n};\nnode.status({ fill: info.error ? 'red' : 'green', shape: 'dot', text: 'fw ' + info.running + ' / ' + info.latestFw + ', flow ' + info.flowInstalled + ' / ' + info.latestFlow });\nreturn { payload: { kind: 'info', info: info } };\n",
+    "func": "// Output of \"check versions\": lines FW=<json> and FLOW=<json>.\nconst out = String(msg.payload || '');\nconst grab = (k) => {\n    const m = out.match(new RegExp('^' + k + '=(.*)$', 'm'));\n    if (!m) return null;\n    try { return JSON.parse(m[1]); } catch (e) { return null; }\n};\nconst fw = grab('FW') || {};\nconst fl = grab('FLOW') || {};\nconst dl = out.match(/^DL-ERROR (.*)$/m);\nconst info = {\n    running: flow.get('teensyFw') || fw.running || null,     // from the JSON output of the Teensy\n    latestFw: fw.latest || null,\n    flowInstalled: env.get('TESLABMS_FLOW_VERSION') || fl.installed || null,\n    latestFlow: fl.latest || null,\n    error: fw.error || fl.error || (dl ? 'Download of the update scripts failed: ' + dl[1].trim() : null)\n};\nnode.status({ fill: info.error ? 'red' : 'green', shape: 'dot', text: 'fw ' + info.running + ' / ' + info.latestFw + ', flow ' + info.flowInstalled + ' / ' + info.latestFlow });\nreturn { payload: { kind: 'info', info: info } };\n",
     "outputs": 1,
     "timeout": 0,
     "noerr": 0,
@@ -560,7 +560,7 @@
     "type": "exec",
     "z": "5fce40a6fa720026",
     "name": "flash Teensy",
-    "command": "python3 /data/teslabms/teensy_flash.py --latest --yes --no-serial 2>&1",
+    "command": "D=/data/teslabms; [ -w $D ] || D=${HOME:-/data/home/nodered}/teslabms; python3 $D/teensy_flash.py --latest --yes --no-serial 2>&1",
     "addpay": "",
     "append": "",
     "useSpawn": "false",
@@ -605,7 +605,7 @@
     "type": "exec",
     "z": "5fce40a6fa720026",
     "name": "update dashboard",
-    "command": "python3 /data/teslabms/flow_update.py --latest --yes 2>&1",
+    "command": "D=/data/teslabms; [ -w $D ] || D=${HOME:-/data/home/nodered}/teslabms; python3 $D/flow_update.py --latest --yes 2>&1",
     "addpay": "",
     "append": "",
     "useSpawn": "false",

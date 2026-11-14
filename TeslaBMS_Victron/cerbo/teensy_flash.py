@@ -34,7 +34,7 @@ UA = {"User-Agent": "teslabms-flasher"}
 CODE_SIZE = 262144
 BLOCK_SIZE = 1024
 HALFKAY_VID, HALFKAY_PID = 0x16C0, 0x0478
-CACHE_DIR = "/data/teslabms"
+CACHE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def log(msg):
@@ -196,7 +196,12 @@ def flash(image, used, dry_run=False):
         if not dev:
             raise RuntimeError("bootloader did not appear; press the button on the Teensy and run again")
     log("Bootloader found: %s" % dev)
-    fd = os.open(dev, os.O_RDWR)
+    try:
+        fd = os.open(dev, os.O_RDWR)
+    except PermissionError:
+        raise RuntimeError("no access to %s. Run install-teensy-ignore.sh once via SSH as root, then try again. "
+                           "The Teensy is now in its bootloader (BMS off): unplug/replug its USB "
+                           "to start the old firmware again." % dev)
     try:
         for k, b in enumerate(blocks):
             addr = b * BLOCK_SIZE
@@ -251,9 +256,11 @@ def main():
             if want != got:
                 raise RuntimeError("SHA256 does not match - download corrupt, not flashed")
             log("SHA256 OK")
-        os.makedirs(CACHE_DIR, exist_ok=True)
-        with open(os.path.join(CACHE_DIR, "last.hex"), "wb") as f:
-            f.write(data)
+        try:
+            with open(os.path.join(CACHE_DIR, "last.hex"), "wb") as f:
+                f.write(data)
+        except OSError:
+            pass  # cache only
         text = data.decode()
         label = tag
 

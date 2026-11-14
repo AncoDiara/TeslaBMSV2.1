@@ -124,11 +124,65 @@ def merge(current, new):
     return kept + incoming, removed, len(incoming), use_base, new_base_ids
 
 
+def _cmdline(pid):
+    try:
+        with open("/proc/%d/cmdline" % pid, "rb") as f:
+            return [a.decode(errors="replace") for a in f.read().split(b"\0") if a]
+    except OSError:
+        return []
+
+
+def _ppid(pid):
+    try:
+        with open("/proc/%d/stat" % pid) as f:
+            return int(f.read().rsplit(")", 1)[1].split()[1])
+    except (OSError, ValueError, IndexError):
+        return 0
+
+
+def find_nodered_pid():
+    """The Node-RED process: first look up our own parent chain (we run from an exec node),
+    then any process of our own user with node-red in its command line."""
+    def is_red(argv):
+        # node .../node-red/red.js  or  node-red ...   (not a shell or python that merely mentions it)
+        if not argv or os.path.basename(argv[0]) in ("sh", "bash", "python3", "python"):
+            return False
+        return any(os.path.basename(a) in ("node-red", "red.js") for a in argv[:3])
+    pid = os.getppid()
+    while pid > 1:
+        if is_red(_cmdline(pid)):
+            return pid
+        pid = _ppid(pid)
+    me = os.getuid()
+    for d in os.listdir("/proc"):
+        if d.isdigit() and int(d) != os.getpid():
+            try:
+                if os.stat("/proc/" + d).st_uid != me:
+                    continue
+            except OSError:
+                continue
+            c = _cmdline(int(d))
+            if is_red(c):
+                return int(d)
+    return None
+
+
 def restart_nodered():
+    """Restart Node-RED. As root via svc; as user nodered (Venus OS runs Node-RED without root)
+    svc is not allowed, so stop our own Node-RED process: the service supervisor starts it again."""
     for svc in ("/service/node-red-venus", "/service/node-red"):
         if os.path.isdir(svc):
-            subprocess.run(["svc", "-t", svc], check=False)
-            return svc
+            r = subprocess.run(["svc", "-t", svc], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            out = r.stdout.decode(errors="replace")
+            if r.returncode == 0 and "unable" not in out and "denied" not in out:
+                return "svc -t %s" % svc
+            break
+    pid = find_nodered_pid()
+    if pid:
+        # delayed and detached, so this output still reaches the dashboard
+        subprocess.Popen(["sh", "-c", "sleep 2; kill %d" % pid], start_new_session=True,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return "process %d is stopped, the supervisor starts it again" % pid
     return None
 
 
@@ -196,7 +250,8 @@ def main():
         log("Restart Node-RED yourself to activate the new version.")
     else:
         svc = restart_nodered()
-        log(("Node-RED is restarting (%s)." % svc) if svc else "Node-RED service not found: restart it yourself.")
+        log(("Node-RED is restarting (%s)." % svc) if svc else
+            "Could not restart Node-RED: restart it yourself (Venus: Settings -> Integrations -> Node-RED off/on).")
     return 0
 
 

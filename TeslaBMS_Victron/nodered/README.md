@@ -62,8 +62,17 @@ latest version on GitHub (checked at start and every 6 hours, or with **Check**)
   version (backup of the flows file first), then Node-RED restarts. Reload the page after ~30 s.
   Other flows and an existing Dashboard 2.0 base are left untouched.
 
-The scripts (`teensy_flash.py`, `flow_update.py`) are kept in `/data/teslabms/` and are refreshed
-from the latest release at every check.
+The scripts (`teensy_flash.py`, `flow_update.py`) are kept in `/data/teslabms/` (or
+`~nodered/teslabms/` if that folder is not writable) and are refreshed from the latest release at every check.
+
+**Node-RED runs as user `nodered` on Venus OS, not as root.** Therefore run
+[`install-teensy-ignore.sh`](install-teensy-ignore.sh) once via SSH as root. It gives Node-RED access
+to the Teensy bootloader (needed for firmware updates) and to `/data/teslabms`:
+```bash
+ssh root@<gx-ip> 'sh -s' < install-teensy-ignore.sh
+```
+The dashboard update restarts Node-RED by stopping its own process; the Venus service supervisor
+starts it again.
 
 ### First time (from an older dashboard without the update block)
 Via SSH as root on the GX:
