@@ -10,6 +10,11 @@ class BMSModuleManager
     void clearmodules();
     void StopBalancing(bool clearState = true);
     uint8_t getBalanceMask(int addr);        // NEW: bit 0..5 = cell 1..6 is being bled
+    // NEW: per-module readout (for the JSON output)
+    bool moduleExists(int addr);
+    float getModuleVolt(int addr);
+    float getCellV(int addr, int cell);       // cell 0..5
+    float getModuleTemp(int addr, int t);     // t 0..1
     void balanceCells(int duration, int debug);
     void setupBoards();
     void findBoards();

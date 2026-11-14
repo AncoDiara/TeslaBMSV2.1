@@ -1,0 +1,406 @@
+[
+  {
+    "id": "27da39bfea1cf2a6",
+    "type": "tab",
+    "label": "Tesla BMS",
+    "disabled": false,
+    "info": "Claude Tesla BMS (TeslaBMS_Victron) - reads the JSON telemetry of the Teensy via USB.\n\n1. On the Teensy: serial monitor, menu s -> m -> j (JSON on), q to save.\n2. Check the serial port (default /dev/ttyACM0) in the 'Teensy USB' config node.\n3. Needs node-red-node-serialport and @flowfuse/node-red-dashboard (Dashboard 2.0).\n4. The port is found automatically (top of the flow); VE_SERVICE=ignore is set automatically.\n5. Already have a Dashboard 2.0 base/theme? Then point the page 'Tesla BMS' at your own base and delete the imported ones."
+  },
+  {
+    "id": "339bca9f3681b6c1",
+    "type": "ui-base",
+    "name": "Dashboard",
+    "path": "/dashboard",
+    "includeClientData": true,
+    "acceptsClientConfig": [
+      "ui-notification",
+      "ui-control"
+    ],
+    "showPathInSidebar": false,
+    "navigationStyle": "default",
+    "titleBarStyle": "default"
+  },
+  {
+    "id": "3648201393cc71d8",
+    "type": "ui-theme",
+    "name": "Tesla BMS theme",
+    "colors": {
+      "surface": "#ffffff",
+      "primary": "#0094ce",
+      "bgPage": "#eeeeee",
+      "groupBg": "#ffffff",
+      "groupOutline": "#cccccc"
+    },
+    "sizes": {
+      "density": "default",
+      "pagePadding": "12px",
+      "groupGap": "12px",
+      "groupBorderRadius": "4px",
+      "widgetGap": "12px"
+    }
+  },
+  {
+    "id": "44f1aefa64c5a761",
+    "type": "ui-page",
+    "name": "Tesla BMS",
+    "ui": "339bca9f3681b6c1",
+    "path": "/tesla-bms",
+    "icon": "battery-charging",
+    "layout": "grid",
+    "theme": "3648201393cc71d8",
+    "order": 1,
+    "className": "",
+    "visible": "true",
+    "disabled": "false",
+    "breakpoints": [
+      {
+        "name": "Default",
+        "px": "0",
+        "cols": "3"
+      },
+      {
+        "name": "Tablet",
+        "px": "576",
+        "cols": "6"
+      },
+      {
+        "name": "Small Desktop",
+        "px": "768",
+        "cols": "9"
+      },
+      {
+        "name": "Desktop",
+        "px": "1024",
+        "cols": "12"
+      }
+    ]
+  },
+  {
+    "id": "22795f7dc391f693",
+    "type": "ui-group",
+    "name": "Battery",
+    "page": "44f1aefa64c5a761",
+    "width": "12",
+    "height": "1",
+    "order": 1,
+    "showTitle": false,
+    "className": "",
+    "visible": "true",
+    "disabled": "false",
+    "groupType": "default"
+  },
+  {
+    "id": "6f179b461260301f",
+    "type": "ui-group",
+    "name": "History (12 h)",
+    "page": "44f1aefa64c5a761",
+    "width": "12",
+    "height": "1",
+    "order": 2,
+    "showTitle": true,
+    "className": "",
+    "visible": "true",
+    "disabled": "false",
+    "groupType": "default"
+  },
+  {
+    "id": "f83418fd7fd265fe",
+    "type": "serial-port",
+    "name": "Teensy USB",
+    "serialport": "/dev/ttyACM0",
+    "serialbaud": "115200",
+    "databits": "8",
+    "parity": "none",
+    "stopbits": "1",
+    "waitfor": "",
+    "dtr": "high",
+    "rts": "none",
+    "cts": "none",
+    "dsr": "none",
+    "newline": "\\n",
+    "bin": "false",
+    "out": "char",
+    "addchar": "",
+    "responsetimeout": "10000"
+  },
+  {
+    "id": "9b9d0c51cab3534c",
+    "type": "serial in",
+    "z": "27da39bfea1cf2a6",
+    "name": "Teensy USB",
+    "serial": "f83418fd7fd265fe",
+    "x": 130,
+    "y": 200,
+    "wires": [
+      [
+        "aca8bae4e185ecd6"
+      ]
+    ]
+  },
+  {
+    "id": "aca8bae4e185ecd6",
+    "type": "function",
+    "z": "27da39bfea1cf2a6",
+    "name": "Parse BMS JSON",
+    "func": "// One line of serial output from the Teensy.\n// Only lines that start with '{' are the JSON telemetry (menu m -> j on the Teensy);\n// all other lines (menus, messages) are ignored.\nconst line = String(msg.payload || '').trim();\nif (!line.startsWith('{')) return null;\nlet d;\ntry {\n    d = JSON.parse(line);\n} catch (e) {\n    node.status({ fill: 'red', shape: 'ring', text: 'invalid JSON' });\n    return null;\n}\nd._ts = Date.now();\nflow.set('teensyLastData', d._ts);\nnode.status({ fill: 'green', shape: 'dot', text: `v${d.fw}  ${d.so}/${d.se} strings  ${d.lo}-${d.hi} V` });\n\n// Charts: one point every 10 seconds (the Teensy sends every 5 s)\nlet n = (context.get('n') || 0) + 1;\ncontext.set('n', n);\nlet cells = null, pack = null;\nif (n % 2 === 1) {\n    cells = [\n        { topic: 'Highest cell', payload: d.hi },\n        { topic: 'Lowest cell', payload: d.lo }\n    ];\n    pack = [\n        { topic: 'Battery voltage', payload: d.v },\n        { topic: 'CVL', payload: d.cvl }\n    ];\n}\nreturn [{ payload: d }, cells, pack];\n",
+    "outputs": 3,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 330,
+    "y": 200,
+    "outputLabels": [
+      "status",
+      "cell min/max",
+      "voltage/CVL"
+    ],
+    "wires": [
+      [
+        "3cd1deffc347b6d6"
+      ],
+      [
+        "b9015c9abb520a1a"
+      ],
+      [
+        "2c05887429d76ac5"
+      ]
+    ]
+  },
+  {
+    "id": "3cd1deffc347b6d6",
+    "type": "ui-template",
+    "z": "27da39bfea1cf2a6",
+    "group": "22795f7dc391f693",
+    "page": "",
+    "ui": "",
+    "name": "BMS overview",
+    "order": 1,
+    "width": "12",
+    "height": "0",
+    "head": "",
+    "format": "<template>\n  <div v-if=\"d\" class=\"bms\">\n    <div class=\"hdr\">\n      <span class=\"title\">Claude Tesla BMS</span>\n      <span class=\"fw\">v{{ d.fw }}</span>\n      <span :class=\"['state', stateClass]\">{{ stateText }}</span>\n    </div>\n\n    <div class=\"tiles\">\n      <div class=\"tile\"><div class=\"lbl\">SOC</div><div class=\"val\">{{ d.soc }}<small>%</small></div></div>\n      <div class=\"tile\"><div class=\"lbl\">Voltage</div><div class=\"val\">{{ fmt(d.v, 2) }}<small>V</small></div></div>\n      <div class=\"tile\"><div class=\"lbl\">Current</div><div class=\"val\">{{ fmt(d.i, 1) }}<small>A</small></div></div>\n      <div class=\"tile\"><div class=\"lbl\">CVL</div><div class=\"val\">{{ fmt(d.cvl, 1) }}<small>V</small></div></div>\n      <div class=\"tile\"><div class=\"lbl\">CCL / DCL</div><div class=\"val\">{{ fmt(d.ccl, 0) }} / {{ fmt(d.dcl, 0) }}<small>A</small></div></div>\n      <div class=\"tile\"><div class=\"lbl\">Strings online</div><div class=\"val\">{{ d.so }} / {{ d.se }}</div><div class=\"sub\">modules {{ d.mo }} / {{ d.me }}</div></div>\n      <div class=\"tile\"><div class=\"lbl\">Lowest cell</div><div class=\"val\">{{ fmt(d.lo, 3) }}<small>V</small></div><div class=\"sub\">{{ d.loid }}</div></div>\n      <div class=\"tile\"><div class=\"lbl\">Highest cell</div><div class=\"val\">{{ fmt(d.hi, 3) }}<small>V</small></div><div class=\"sub\">{{ d.hiid }}</div></div>\n      <div class=\"tile\"><div class=\"lbl\">Delta</div><div class=\"val\">{{ delta }}<small>mV</small></div></div>\n      <div class=\"tile\"><div class=\"lbl\">Balancing</div><div class=\"val\">{{ d.bal }}<small>cells</small></div></div>\n      <div :class=\"['tile', d.lt > 1500 ? 'tilewarn' : '']\"><div class=\"lbl\">Read round</div><div class=\"val\">{{ d.lt }}<small>ms</small></div><div class=\"sub\">{{ d.mo }} modules</div></div>\n      <div class=\"tile\"><div class=\"lbl\">Temperature</div><div class=\"val\">{{ fmt(d.tlo, 0) }} – {{ fmt(d.thi, 0) }}<small>&deg;C</small></div></div>\n    </div>\n\n    <div v-if=\"alarmList.length\" class=\"alarms\">\n      <span v-for=\"a in alarmList\" :key=\"a.lvl + a.n\" :class=\"['chip', a.lvl]\">{{ a.lvl === 'alarm' ? 'Alarm' : 'Warning' }}: {{ a.n }}</span>\n    </div>\n\n    <div class=\"mods\">\n      <div v-for=\"m in d.mod\" :key=\"m.a\" :class=\"['mod', m.on ? '' : 'modoff']\">\n        <div class=\"mh\">\n          <b>Pk{{ m.a }}</b>\n          <span class=\"dim\">string {{ m.s }}</span>\n          <span>{{ fmt(m.v, 2) }} V</span>\n          <span v-if=\"!m.on\" class=\"badtxt\">OFFLINE</span>\n        </div>\n        <div class=\"cells\">\n          <div v-for=\"(c, i) in m.c\" :key=\"i\" :class=\"['cell', cellClass(m, c)]\">\n            <div class=\"bar\" :style=\"{ height: barPct(c) + '%' }\"></div>\n            <div class=\"cv\">{{ fmt(c, 3) }}</div>\n            <div class=\"cn\">C{{ i + 1 }}</div>\n            <div v-if=\"m.b & (1 << i)\" class=\"bleed\">bleed</div>\n          </div>\n        </div>\n        <div class=\"mt\">T1 {{ tfmt(m.t[0]) }} &middot; T2 {{ tfmt(m.t[1]) }}</div>\n      </div>\n    </div>\n\n    <div class=\"foot\">\n      <span class=\"lg lo\">lowest</span><span class=\"lg hi\">highest</span><span class=\"lg bl\">bleeding</span>\n      <span class=\"dim\">bar height relative to lowest-highest cell ({{ delta }} mV)</span>\n      <span class=\"age\">Last update: {{ age }}</span>\n    </div>\n  </div>\n  <div v-else class=\"bms nodata\">Waiting for data from the Teensy (switch JSON output on: menu m &rarr; j)...</div>\n</template>\n\n<script>\nexport default {\n  data() {\n    return { now: Date.now(), timer: null }\n  },\n  mounted() {\n    this.timer = setInterval(() => { this.now = Date.now() }, 1000)\n  },\n  unmounted() {\n    clearInterval(this.timer)\n  },\n  computed: {\n    d() {\n      const p = this.msg && this.msg.payload\n      return (p && Array.isArray(p.mod)) ? p : null\n    },\n    stale() {\n      return !this.d || (this.now - (this.d._ts || 0)) > 20000\n    },\n    age() {\n      if (!this.d) return '-'\n      const s = Math.round((this.now - this.d._ts) / 1000)\n      return s < 2 ? 'now' : s + ' s ago'\n    },\n    delta() {\n      return this.d ? Math.round((this.d.hi - this.d.lo) * 1000) : 0\n    },\n    alarmList() {\n      if (!this.d) return []\n      const names = [\n        ['General', 'High voltage', 'Low voltage', 'High temperature'],\n        ['Low temperature', 'High temp charge', 'Low temp charge', 'High current'],\n        ['High charge current', 'Contactor', 'Short circuit', 'BMS internal'],\n        ['Cell imbalance', '', '', '']\n      ]\n      const out = []\n      const scan = (bytes, lvl) => {\n        if (!Array.isArray(bytes)) return\n        for (let b = 0; b < 4; b++) {\n          for (let k = 0; k < 4; k++) {\n            if (((bytes[b] >> (k * 2)) & 3) === 1 && names[b][k]) out.push({ n: names[b][k], lvl: lvl })\n          }\n        }\n      }\n      scan(this.d.alm, 'alarm')\n      scan(this.d.wrn, 'warn')\n      if (this.d.ovl) out.push({ n: 'Overvoltage: CCL = 0', lvl: 'alarm' })\n      return out\n    },\n    stateClass() {\n      if (this.stale) return 'bad'\n      if (this.alarmList.some(a => a.lvl === 'alarm')) return 'bad'\n      if (this.alarmList.length) return 'warn'\n      return 'ok'\n    },\n    stateText() {\n      if (this.stale) return 'No data'\n      const st = ['Boot', 'Ready', 'Drive', 'Charge', 'Precharge', 'Error'][this.d.st] || ('Status ' + this.d.st)\n      return st + (this.stateClass === 'ok' ? ' - all OK' : '')\n    }\n  },\n  methods: {\n    fmt(v, n) {\n      return (v === null || v === undefined || isNaN(v)) ? '-' : Number(v).toFixed(n)\n    },\n    tfmt(t) {\n      return (t === null || t === undefined) ? '-' : Number(t).toFixed(1) + ' °C'\n    },\n    barPct(c) {\n      // relative to the lowest/highest cell in the whole battery, so that\n      // differences of a few mV are visible (lowest = 15 %, highest = 100 %)\n      if (!this.d || c === null || c === undefined) return 0\n      const span = Math.max(this.d.hi - this.d.lo, 0.010)\n      const p = 15 + 85 * (c - this.d.lo) / span\n      return Math.max(5, Math.min(100, p))\n    },\n    cellClass(m, c) {\n      if (!m.on) return 'coff'\n      if (Math.abs(c - this.d.hi) < 0.0005 && this.d.hi - this.d.lo > 0.002) return 'chi'\n      if (Math.abs(c - this.d.lo) < 0.0005 && this.d.hi - this.d.lo > 0.002) return 'clo'\n      return 'cn0'\n    }\n  }\n}\n</script>\n\n<style scoped>\n.bms { font-family: inherit; width: 100%; }\n.nodata { opacity: 0.7; padding: 16px; }\n.hdr { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }\n.title { font-size: 1.25em; font-weight: 600; }\n.fw { opacity: 0.6; }\n.state { margin-left: auto; padding: 3px 10px; border-radius: 12px; font-weight: 600; font-size: 0.9em; }\n.state.ok { background: rgba(46, 160, 67, 0.18); color: #2ea043; }\n.state.warn { background: rgba(210, 153, 34, 0.2); color: #b7791f; }\n.state.bad { background: rgba(218, 54, 51, 0.18); color: #da3633; }\n.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin-bottom: 10px; }\n.tile { background: rgba(127, 127, 127, 0.09); border-radius: 8px; padding: 8px 10px; }\n.tilewarn { background: rgba(210, 153, 34, 0.2); }\n.lbl { font-size: 0.75em; opacity: 0.65; text-transform: uppercase; letter-spacing: 0.03em; }\n.val { font-size: 1.35em; font-weight: 600; font-variant-numeric: tabular-nums; }\n.val small { font-size: 0.6em; font-weight: 400; margin-left: 3px; opacity: 0.7; }\n.sub { font-size: 0.8em; opacity: 0.7; }\n.alarms { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }\n.chip { padding: 3px 10px; border-radius: 12px; font-size: 0.85em; font-weight: 600; }\n.chip.alarm { background: rgba(218, 54, 51, 0.18); color: #da3633; }\n.chip.warn { background: rgba(210, 153, 34, 0.2); color: #b7791f; }\n.mods { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }\n.mod { border: 1px solid rgba(127, 127, 127, 0.25); border-radius: 8px; padding: 8px; }\n.modoff { border-color: #da3633; opacity: 0.7; }\n.mh { display: flex; gap: 10px; align-items: baseline; margin-bottom: 6px; font-variant-numeric: tabular-nums; }\n.dim { opacity: 0.6; font-size: 0.85em; }\n.badtxt { color: #da3633; font-weight: 700; margin-left: auto; }\n.cells { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }\n.cell { position: relative; height: 92px; border-radius: 5px; background: rgba(127, 127, 127, 0.1); overflow: hidden; text-align: center; }\n.bar { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(46, 160, 67, 0.35); }\n.chi .bar { background: rgba(218, 54, 51, 0.45); }\n.clo .bar { background: rgba(56, 132, 244, 0.45); }\n.coff .bar { background: rgba(127, 127, 127, 0.3); }\n.cv { position: relative; font-size: 0.72em; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }\n.cn { position: relative; font-size: 0.7em; opacity: 0.65; }\n.bleed { position: absolute; left: 2px; right: 2px; bottom: 3px; font-size: 0.62em; font-weight: 700; color: #b7791f; background: rgba(210, 153, 34, 0.22); border-radius: 3px; }\n.mt { font-size: 0.78em; opacity: 0.7; margin-top: 5px; }\n.foot { display: flex; gap: 12px; align-items: center; margin-top: 10px; font-size: 0.8em; flex-wrap: wrap; }\n.lg::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }\n.lg.lo::before { background: rgba(56, 132, 244, 0.6); }\n.lg.hi::before { background: rgba(218, 54, 51, 0.6); }\n.lg.bl::before { background: rgba(210, 153, 34, 0.5); }\n.age { margin-left: auto; opacity: 0.7; }\n</style>\n",
+    "storeOutMessages": true,
+    "passthru": false,
+    "resendOnRefresh": true,
+    "templateScope": "local",
+    "className": "",
+    "x": 600,
+    "y": 160,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "b9015c9abb520a1a",
+    "type": "ui-chart",
+    "z": "27da39bfea1cf2a6",
+    "group": "6f179b461260301f",
+    "name": "Cell min/max",
+    "label": "Cell voltage lowest / highest",
+    "order": 1,
+    "chartType": "line",
+    "category": "topic",
+    "categoryType": "msg",
+    "xAxisLabel": "",
+    "xAxisProperty": "",
+    "xAxisPropertyType": "timestamp",
+    "xAxisType": "time",
+    "xAxisFormat": "",
+    "xAxisFormatType": "auto",
+    "xmin": "",
+    "xmax": "",
+    "yAxisLabel": "V",
+    "yAxisProperty": "payload",
+    "yAxisPropertyType": "msg",
+    "ymin": "",
+    "ymax": "",
+    "action": "append",
+    "stackSeries": false,
+    "pointShape": "false",
+    "pointRadius": 2,
+    "showLegend": true,
+    "removeOlder": "12",
+    "removeOlderUnit": "3600",
+    "removeOlderPoints": "",
+    "colors": [
+      "#d62728",
+      "#1f77b4",
+      "#ff7f0e",
+      "#2ca02c",
+      "#a347e1",
+      "#d62728",
+      "#ff9896",
+      "#9467bd",
+      "#c5b0d5"
+    ],
+    "textColor": [
+      "#666666"
+    ],
+    "textColorDefault": true,
+    "gridColor": [
+      "#e5e5e5"
+    ],
+    "gridColorDefault": true,
+    "width": "6",
+    "height": "5",
+    "className": "",
+    "interpolation": "linear",
+    "x": 620,
+    "y": 260,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "2c05887429d76ac5",
+    "type": "ui-chart",
+    "z": "27da39bfea1cf2a6",
+    "group": "6f179b461260301f",
+    "name": "Battery voltage / CVL",
+    "label": "Battery voltage and CVL",
+    "order": 2,
+    "chartType": "line",
+    "category": "topic",
+    "categoryType": "msg",
+    "xAxisLabel": "",
+    "xAxisProperty": "",
+    "xAxisPropertyType": "timestamp",
+    "xAxisType": "time",
+    "xAxisFormat": "",
+    "xAxisFormatType": "auto",
+    "xmin": "",
+    "xmax": "",
+    "yAxisLabel": "V",
+    "yAxisProperty": "payload",
+    "yAxisPropertyType": "msg",
+    "ymin": "",
+    "ymax": "",
+    "action": "append",
+    "stackSeries": false,
+    "pointShape": "false",
+    "pointRadius": 2,
+    "showLegend": true,
+    "removeOlder": "12",
+    "removeOlderUnit": "3600",
+    "removeOlderPoints": "",
+    "colors": [
+      "#2ca02c",
+      "#ff7f0e",
+      "#ff7f0e",
+      "#2ca02c",
+      "#a347e1",
+      "#d62728",
+      "#ff9896",
+      "#9467bd",
+      "#c5b0d5"
+    ],
+    "textColor": [
+      "#666666"
+    ],
+    "textColorDefault": true,
+    "gridColor": [
+      "#e5e5e5"
+    ],
+    "gridColorDefault": true,
+    "width": "6",
+    "height": "5",
+    "className": "",
+    "interpolation": "linear",
+    "x": 620,
+    "y": 320,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "9215dea3e3cefb64",
+    "type": "comment",
+    "z": "27da39bfea1cf2a6",
+    "name": "Find Teensy port + VE_SERVICE=ignore (at start and every 60 s)",
+    "info": "Looks up the Teensy via /dev/serial/by-id (name contains 'Teensy'), sets the serial port via the serial control node and makes sure VenusOS serial-starter leaves the Teensy alone (udev rule VE_SERVICE=ignore for USB-ID 16c0:0483). The rule is also written to /data/rc.local so it comes back automatically after a firmware update.",
+    "x": 250,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "6d77f3645d8d35f9",
+    "type": "inject",
+    "z": "27da39bfea1cf2a6",
+    "name": "start + every 60 s",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "60",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "5",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 150,
+    "y": 80,
+    "wires": [
+      [
+        "3d091e9909b188ba"
+      ]
+    ]
+  },
+  {
+    "id": "3d091e9909b188ba",
+    "type": "exec",
+    "z": "27da39bfea1cf2a6",
+    "name": "find Teensy + ignore rule",
+    "command": "P=$(ls /dev/serial/by-id/ 2>/dev/null | grep -i -m1 teensy); if [ -n \"$P\" ]; then echo \"PORT=/dev/serial/by-id/$P\"; else echo \"PORT=\"; fi\nR=/etc/udev/rules.d/zz-teslabms-teensy.rules\nL='ACTION==\"add\", SUBSYSTEM==\"tty\", ATTRS{idVendor}==\"16c0\", ATTRS{idProduct}==\"0483\", ENV{VE_SERVICE}=\"ignore\"'\nRW=/opt/victronenergy/swupdate-scripts/remount-rw.sh\nif [ -f \"$R\" ]; then echo \"UDEV=ok\"; else [ -x \"$RW\" ] && \"$RW\" >/dev/null 2>&1; if echo \"$L\" > \"$R\" 2>/dev/null; then udevadm control --reload-rules; udevadm trigger --action=add --subsystem-match=tty; echo \"UDEV=added\"; else echo \"UDEV=noperm\"; fi; fi\nif grep -q teslabms-teensy /data/rc.local 2>/dev/null; then echo \"RCLOCAL=ok\"; elif [ -w /data ]; then [ -f /data/rc.local ] || printf '#!/bin/sh\\n' > /data/rc.local; printf '%s\\n' \"# teslabms-teensy: VE_SERVICE=ignore for the Teensy (comes back after a firmware update)\" \"[ -f $R ] || { [ -x $RW ] && $RW; echo '$L' > $R; udevadm control --reload-rules; udevadm trigger --action=add --subsystem-match=tty; }\" >> /data/rc.local; chmod +x /data/rc.local; echo \"RCLOCAL=added\"; else echo \"RCLOCAL=noperm\"; fi",
+    "addpay": "",
+    "append": "",
+    "useSpawn": "false",
+    "timer": "20",
+    "winHide": false,
+    "oldrc": false,
+    "x": 380,
+    "y": 80,
+    "wires": [
+      [
+        "492c759b76f396d7"
+      ],
+      [],
+      []
+    ]
+  },
+  {
+    "id": "492c759b76f396d7",
+    "type": "function",
+    "z": "27da39bfea1cf2a6",
+    "name": "Set port",
+    "func": "// Processes the output of the \"find Teensy\" script.\nconst out = String(msg.payload || '');\nconst get = (k) => { const m = out.match(new RegExp('^' + k + '=(.*)$', 'm')); return m ? m[1].trim() : ''; };\nconst port = get('PORT'), udev = get('UDEV'), rc = get('RCLOCAL');\nconst perm = (udev === 'noperm' || rc === 'noperm') ? '  (no rights: run install-teensy-ignore.sh once via SSH)' : '';\nif (!port) {\n    node.status({ fill: 'red', shape: 'ring', text: 'Teensy not found' + perm });\n    return null;\n}\nconst current = flow.get('teensyPort');\nconst last = flow.get('teensyLastData') || 0;\nconst silent = (Date.now() - last) > 60000;   // no data for 60 s -> reconnect\nnode.status({ fill: perm ? 'yellow' : 'green', shape: 'dot', text: port.replace('/dev/serial/by-id/', '') + '  udev:' + udev + '  rc.local:' + rc + perm });\nif (port !== current || silent) {\n    flow.set('teensyPort', port);\n    return { payload: { serialport: port, serialbaud: 115200 } };\n}\nreturn null;\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 590,
+    "y": 80,
+    "wires": [
+      [
+        "fd29dcf13a4ac60d"
+      ]
+    ]
+  },
+  {
+    "id": "fd29dcf13a4ac60d",
+    "type": "serial control",
+    "z": "27da39bfea1cf2a6",
+    "name": "Teensy port",
+    "serial": "f83418fd7fd265fe",
+    "x": 770,
+    "y": 80,
+    "wires": [
+      []
+    ]
+  }
+]

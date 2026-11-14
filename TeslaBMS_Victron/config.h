@@ -33,8 +33,9 @@
 
 #define MAX_MODULE_ADDR     0x3E
 
-#define EEPROM_VERSION      0x1A    //update any time EEPROM struct below is changed.
-// 0x1A: ONE-TIME RESET to defaults (only the CAN speed is kept), see setup()
+#define EEPROM_VERSION      0x1B    //update any time EEPROM struct below is changed.
+#define EEPROM_VERSION_VIC5 0x1A    //previous version (after the one-time reset): is migrated, settings are kept
+// 0x1A was the ONE-TIME RESET to defaults (only the CAN speed was kept), see setup()
 #define EEPROM_VERSION_VIC4 0x18    //TeslaBMS_Victron without CVL control: is migrated
 #define EEPROM_VERSION_VIC3 0x17    //TeslaBMS_Victron with total currents: is migrated to currents per string
 #define EEPROM_VERSION_VIC2 0x16    //TeslaBMS_Victron without AutoTopology: is migrated
@@ -113,4 +114,5 @@ typedef struct {
   float balanceStart;        // V: start bleeding when cell > lowest cell in string + this value
   uint8_t AutoTopology;      // 1 = at every start: renumber + number of strings = what is found
   uint8_t CVLControl;        // 1 = Victron style: lower CVL (0.1 V/s) instead of tapering CCL
+  uint8_t JsonOut;           // 1 = every 5 s one JSON line over USB (for Node-RED), text output off
 } EEPROMSettings;

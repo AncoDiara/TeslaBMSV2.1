@@ -111,12 +111,22 @@ Passive (bleed resistors in the Tesla module), per string, per cell:
 - The original minimum wait times are kept: the module needs them to finish an ADC measurement
 - `setupBoards()` verifies each newly assigned address and can no longer loop forever
 
+## Node-RED dashboard (USB to the GX)
+
+The Teensy can be connected to a USB port of the GX instead of a laptop. With JSON output on
+(menu `m` → `j`) it sends one JSON line every 5 seconds with all cell voltages, balancing, limits and
+alarms. The folder [`nodered/`](nodered/) contains a ready-made flow for FlowFuse Dashboard 2.0 that
+finds the Teensy port by itself and makes VenusOS serial-starter ignore it (also after a firmware
+update). See [nodered/README.md](nodered/README.md).
+
+![Dashboard preview (simulated data)](nodered/dashboard-preview.png)
+
 ## Serial menu
 
 Open the menu with `s` in the serial monitor (115200 baud).
 
 - `b` – Battery Settings (Scells, Pstrings, capacity **per string**, balancing)
-- `m` – **Modules & Strings** (new): overview per string, `a` auto-detect, `f` search again, `r` renumber, `t` alarm delay, `v` CVL control, `s` CCL/DCL scaling
+- `m` – **Modules & Strings** (new): overview per string, `a` auto-detect, `f` search again, `r` renumber, `t` alarm delay, `j` JSON output, `v` CVL control, `s` CCL/DCL scaling
 - `q` – back / save (EEPROM)
 
 Settings live in the Teensy's EEPROM and survive flashing. **v26.9 resets them once to the defaults**

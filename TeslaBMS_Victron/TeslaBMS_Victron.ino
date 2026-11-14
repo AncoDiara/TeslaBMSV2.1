@@ -92,6 +92,11 @@ float cvlActual = 0.0f;       // V, the CVL sent to Victron
 unsigned long cvlTimer = 0;
 bool overVoltLatch = false;   // highest cell >= OverVSetpoint: CCL = 0 (chargers off)
 bool eepromWasReset = false;  // set at the one-time EEPROM reset (message at startup)
+unsigned long jsonTimer = 0;
+#define JSON_INTERVAL 5000UL  // ms between two JSON lines (Node-RED dashboard)
+unsigned long lastMenuInput = 0;
+unsigned long lastBlockMs = 0; // ms: duration of the last read round (500 ms block)
+#define MENU_TIMEOUT 120000UL // ms: close the menu automatically without input
 
 //Curent filter//
 float filterFrequency = 5.0 ;
@@ -340,6 +345,7 @@ void loadNewSettings()
   settings.balanceStart = 0.015f; // start balancing at > 15 mV difference
   settings.AutoTopology = 1;      // at every start: count modules = expected number
   settings.CVLControl = 1;        // Victron style: lower CVL, CCL stays open until OverVSetpoint
+  settings.JsonOut = 0;           // JSON output over USB (Node-RED) off by default
 }
 
 /*
@@ -424,7 +430,14 @@ void setup()
   // ONE-TIME RESET (EEPROM 0x1A): with any other version all settings go to the
   // defaults from loadSettings(). Only the CAN speed is kept, otherwise the
   // connection to the GX would drop (e.g. 250 kbit/s on VE.Can for Lynx current).
-  if (settings.version != EEPROM_VERSION)
+  if (settings.version == EEPROM_VERSION_VIC5)
+  {
+    // previous version: keep all settings, only add the new field
+    settings.JsonOut = 0;
+    settings.version = EEPROM_VERSION;
+    EEPROM.put(0, settings);
+  }
+  else if (settings.version != EEPROM_VERSION)
   {
     uint32_t oldCanSpeed = settings.canSpeed;
     bool knownOld = (settings.version >= EEPROM_VERSION_V2 && settings.version < EEPROM_VERSION);
@@ -439,6 +452,8 @@ void setup()
   if (settings.ScaleLimits > 1) settings.ScaleLimits = 1;
   if (settings.AutoTopology > 1) settings.AutoTopology = 1;
   if (settings.CVLControl > 1) settings.CVLControl = 1;
+  if (settings.JsonOut > 1) settings.JsonOut = 0;
+  if (settings.JsonOut == 1) debug = 0; // JSON mode: no text output in between
   if (!(settings.balanceStart >= 0.002f && settings.balanceStart <= 0.5f)) settings.balanceStart = 0.015f;
 
   Can0.begin(settings.canSpeed);
@@ -599,7 +614,17 @@ void loop()
 
   if (SERIALCONSOLE.available() > 0)
   {
+    lastMenuInput = millis();
     menu();
+  }
+  // NEW: close the menu automatically after 2 minutes without input
+  // (e.g. when another device on the USB port has sent stray bytes)
+  if (menuload != 0 && (millis() - lastMenuInput) > MENU_TIMEOUT)
+  {
+    menuload = 0;
+    debug = (settings.JsonOut == 1) ? 0 : 1;
+    SERIALCONSOLE.println();
+    SERIALCONSOLE.println("Menu closed (2 minutes without input, changes not saved)");
   }
   if (outputcheck != 1)
   {
@@ -1026,6 +1051,7 @@ void loop()
   if (millis() - looptime > 500)
   {
     looptime = millis();
+    unsigned long blockStart = millis();
     bms.getAllVoltTemp();
     //UV  check
     if (settings.ESSmode == 1)
@@ -1129,10 +1155,16 @@ void loop()
     cellspresent = bms.seriescells();
     modulecheck();
     alarmupdate();
+    if (settings.JsonOut == 1 && menuload == 0 && (millis() - jsonTimer) >= JSON_INTERVAL)
+    {
+      jsonTimer = millis();
+      printJson(); // 1x per 5 seconds (dashboard; keep the load on the GX low)
+    }
     if (CSVdebug != 1)
     {
       dashupdate();
     }
+    lastBlockMs = millis() - blockStart; // duration of measuring + balancing + processing
     resetwdog();
   }
 
@@ -1975,6 +2007,87 @@ void calcFirmwareDate()
 }
 unsigned long canSlowTimer = 0;
 
+/*
+  NEW: one JSON line over USB (Serial), 1x per 5 seconds (JSON_INTERVAL), for Node-RED.
+  Only when settings.JsonOut = 1 and the port is open on the PC/GX side.
+  Fields:
+    lt  duration of the last read round in ms (with many modules: keep it well below 3000)
+    fw  firmware version          st  bmsstatus (0 Boot,1 Ready,2 Drive,3 Charge,4 Precharge,5 Error)
+    cvl/ccl/dcl  limits to Victron (V/A)    v pack voltage (V)   i current (A, + = charging)   soc (%)
+    so/se  strings online/expected   mo/me modules online/expected   bal number of cells balancing
+    lo/hi lowest/highest cell (V) with loid/hiid ("Pk3 C5")   tlo/thi lowest/highest temperature (C)
+    ovl overvoltage latch (CCL=0)   mw/ma module warning/alarm
+    alm/wrn  the 4 alarm/warning bytes of 0x35A (2 bits per alarm: 1 = active, 2 = OK, 0 = n/a)
+    mod  per module: a address, s string (1..), on online, v module voltage, c[6] cells (V),
+         t[2] temperatures (C, null = no sensor), b balance mask (bit0 = cell 1)
+*/
+void jsonFloat(float f, int digits)
+{
+  if (isnan(f) || isinf(f)) SERIALCONSOLE.print("null");
+  else SERIALCONSOLE.print(f, digits);
+}
+
+void printJson()
+{
+  if (!Serial) return; // nobody is listening (port not opened)
+  char id[9];
+  SERIALCONSOLE.print("{\"fw\":\"");
+  SERIALCONSOLE.print(FW_YEAR); SERIALCONSOLE.print("."); SERIALCONSOLE.print(FW_BUILD & 0xFF);
+  SERIALCONSOLE.print("\",\"st\":"); SERIALCONSOLE.print(bmsstatus);
+  SERIALCONSOLE.print(",\"cvl\":"); jsonFloat(cvlActual, 2);
+  SERIALCONSOLE.print(",\"ccl\":"); jsonFloat(chargecurrent * 0.1f, 1);
+  SERIALCONSOLE.print(",\"dcl\":"); jsonFloat(discurrent * 0.1f, 1);
+  SERIALCONSOLE.print(",\"v\":"); jsonFloat(bms.getPackVoltage(), 3);
+  SERIALCONSOLE.print(",\"i\":"); jsonFloat(currentact / 1000.0f, 1);
+  SERIALCONSOLE.print(",\"soc\":"); SERIALCONSOLE.print(SOC);
+  SERIALCONSOLE.print(",\"so\":"); SERIALCONSOLE.print(bms.getStringsOnline());
+  SERIALCONSOLE.print(",\"se\":"); SERIALCONSOLE.print(bms.getStringsExpected());
+  SERIALCONSOLE.print(",\"mo\":"); SERIALCONSOLE.print(bms.getModulesOnline());
+  SERIALCONSOLE.print(",\"me\":"); SERIALCONSOLE.print(bms.getExpectedModules());
+  SERIALCONSOLE.print(",\"bal\":"); SERIALCONSOLE.print(bms.getBalancing());
+  SERIALCONSOLE.print(",\"lt\":"); SERIALCONSOLE.print(lastBlockMs);
+  SERIALCONSOLE.print(",\"lo\":"); jsonFloat(bms.getLowCellVolt(), 3);
+  canLocationText((uint8_t *)id, bms.lowCellAddr, bms.lowCellNum, 'C'); id[8] = 0;
+  SERIALCONSOLE.print(",\"loid\":\""); SERIALCONSOLE.print(id); SERIALCONSOLE.print("\"");
+  SERIALCONSOLE.print(",\"hi\":"); jsonFloat(bms.getHighCellVolt(), 3);
+  canLocationText((uint8_t *)id, bms.highCellAddr, bms.highCellNum, 'C'); id[8] = 0;
+  SERIALCONSOLE.print(",\"hiid\":\""); SERIALCONSOLE.print(id); SERIALCONSOLE.print("\"");
+  SERIALCONSOLE.print(",\"tlo\":"); jsonFloat(bms.getLowTemperature(), 1);
+  SERIALCONSOLE.print(",\"thi\":"); jsonFloat(bms.getHighTemperature(), 1);
+  SERIALCONSOLE.print(",\"ovl\":"); SERIALCONSOLE.print(overVoltLatch ? 1 : 0);
+  SERIALCONSOLE.print(",\"mw\":"); SERIALCONSOLE.print(moduleWarning ? 1 : 0);
+  SERIALCONSOLE.print(",\"ma\":"); SERIALCONSOLE.print(moduleAlarm ? 1 : 0);
+  SERIALCONSOLE.print(",\"alm\":[");
+  for (int k = 0; k < 4; k++) { if (k) SERIALCONSOLE.print(","); SERIALCONSOLE.print(alarm[k]); }
+  SERIALCONSOLE.print("],\"wrn\":[");
+  for (int k = 0; k < 4; k++) { if (k) SERIALCONSOLE.print(","); SERIALCONSOLE.print(warning[k]); }
+  SERIALCONSOLE.print("],\"mod\":[");
+  bool first = true;
+  for (int a = 1; a <= MAX_MODULE_ADDR; a++)
+  {
+    if (!bms.moduleExists(a)) continue;
+    if (!first) SERIALCONSOLE.print(",");
+    first = false;
+    SERIALCONSOLE.print("{\"a\":"); SERIALCONSOLE.print(a);
+    SERIALCONSOLE.print(",\"s\":");
+    if (bms.isConfiguredModule(a)) SERIALCONSOLE.print(bms.stringOfModule(a) + 1); else SERIALCONSOLE.print(0);
+    SERIALCONSOLE.print(",\"on\":"); SERIALCONSOLE.print(bms.isModuleOnline(a) ? 1 : 0);
+    SERIALCONSOLE.print(",\"v\":"); jsonFloat(bms.getModuleVolt(a), 3);
+    SERIALCONSOLE.print(",\"c\":[");
+    for (int c = 0; c < 6; c++) { if (c) SERIALCONSOLE.print(","); jsonFloat(bms.getCellV(a, c), 3); }
+    SERIALCONSOLE.print("],\"t\":[");
+    for (int t = 0; t < 2; t++)
+    {
+      if (t) SERIALCONSOLE.print(",");
+      float tc = bms.getModuleTemp(a, t);
+      if (tc <= -70.0f) SERIALCONSOLE.print("null"); else jsonFloat(tc, 1);
+    }
+    SERIALCONSOLE.print("],\"b\":"); SERIALCONSOLE.print(bms.getBalanceMask(a));
+    SERIALCONSOLE.print("}");
+  }
+  SERIALCONSOLE.println("]}");
+}
+
 void VEcan() //communication with Victron system over CAN
 {
   msg.id  = 0x351;
@@ -2297,6 +2410,12 @@ void menu()
 
       case 'a': // auto-detect at startup on/off
         settings.AutoTopology = !settings.AutoTopology;
+        menuload = 1;
+        incomingByte = 'm';
+        break;
+
+      case 'j': // JSON output over USB (Node-RED) on/off
+        settings.JsonOut = !settings.JsonOut;
         menuload = 1;
         incomingByte = 'm';
         break;
@@ -3039,6 +3158,8 @@ case 'r':  //r for reset
         SERIALCONSOLE.print("t - Delay warning -> alarm when a string is missing : ");
         SERIALCONSOLE.print(settings.ModuleAlarmDelay);
         SERIALCONSOLE.println(" s");
+        SERIALCONSOLE.print("j - JSON output over USB for Node-RED (1x per 5 s, text off) : ");
+        SERIALCONSOLE.println(settings.JsonOut ? "On" : "Off");
         SERIALCONSOLE.print("v - Victron CVL control (lower CVL 0.1V/s, CCL=0 only at OverV) : ");
         SERIALCONSOLE.println(settings.CVLControl ? "On" : "Off (old: CCL taper, fixed CVL)");
         SERIALCONSOLE.print("s - Scale CCL/DCL with strings online : ");
@@ -3269,7 +3390,7 @@ case 'r':  //r for reset
       case 113: //q to go back to main menu
         EEPROM.put(0, settings); //save all change to eeprom
         menuload = 0;
-        debug = 1;
+        debug = (settings.JsonOut == 1) ? 0 : 1; // JSON mode: keep the text output off
         break;
       case 'd': //d for debug settings
         while (Serial.available()) {

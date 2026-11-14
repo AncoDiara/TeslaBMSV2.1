@@ -460,6 +460,26 @@ void BMSModuleManager::balanceCells(int duration, int debug)
   }
 }
 
+bool BMSModuleManager::moduleExists(int addr)
+{
+  return (addr >= 1 && addr <= MAX_MODULE_ADDR) ? modules[addr].isExisting() : false;
+}
+
+float BMSModuleManager::getModuleVolt(int addr)
+{
+  return (addr >= 1 && addr <= MAX_MODULE_ADDR) ? modules[addr].getModuleVoltage() : 0.0f;
+}
+
+float BMSModuleManager::getCellV(int addr, int cell)
+{
+  return (addr >= 1 && addr <= MAX_MODULE_ADDR) ? modules[addr].getCellVoltage(cell) : 0.0f;
+}
+
+float BMSModuleManager::getModuleTemp(int addr, int t)
+{
+  return (addr >= 1 && addr <= MAX_MODULE_ADDR) ? modules[addr].getTemperature(t) : 0.0f;
+}
+
 uint8_t BMSModuleManager::getBalanceMask(int addr)
 {
   return (addr >= 1 && addr <= MAX_MODULE_ADDR) ? balMask[addr] : 0;
