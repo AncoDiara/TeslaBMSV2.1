@@ -2045,6 +2045,9 @@ void printJson()
   SERIALCONSOLE.print(",\"mo\":"); SERIALCONSOLE.print(bms.getModulesOnline());
   SERIALCONSOLE.print(",\"me\":"); SERIALCONSOLE.print(bms.getExpectedModules());
   SERIALCONSOLE.print(",\"bal\":"); SERIALCONSOLE.print(bms.getBalancing());
+  SERIALCONSOLE.print(",\"bv\":"); jsonFloat(settings.balanceVoltage, 3);   // balance from (V)
+  SERIALCONSOLE.print(",\"bs\":"); jsonFloat(settings.balanceStart, 3);     // start: difference > (V)
+  SERIALCONSOLE.print(",\"bh\":"); jsonFloat(settings.balanceHyst, 3);      // stop: down to difference (V)
   SERIALCONSOLE.print(",\"lt\":"); SERIALCONSOLE.print(lastBlockMs);
   SERIALCONSOLE.print(",\"lo\":"); jsonFloat(bms.getLowCellVolt(), 3);
   canLocationText((uint8_t *)id, bms.lowCellAddr, bms.lowCellNum, 'C'); id[8] = 0;
