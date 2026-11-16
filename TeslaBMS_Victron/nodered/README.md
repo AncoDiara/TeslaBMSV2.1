@@ -20,19 +20,40 @@ Already have a Dashboard 2.0 base or theme? Point the page *Tesla BMS* at your o
 and delete the imported ones (Dashboard 2.0 uses one base).
 
 ## 4. Port and VE_SERVICE=ignore (automatic)
-At start and every 60 s the flow:
-- looks up the Teensy via `/dev/serial/by-id/` (name contains `Teensy`) and sets that port
-  through the *serial control* node (stable name, even if it becomes ttyACM1);
+At start and every 20 s the flow:
+- looks up the Teensys via `/dev/serial/by-id/` (name contains `Teensy`) and assigns them
+  (node *Assign Teensy ports*, see below) through the *serial control* nodes (stable names, even if
+  they become ttyACM1);
 - writes a udev rule so that VenusOS serial-starter leaves the Teensy alone:
   `/etc/udev/rules.d/zz-teslabms-teensy.rules` with `ENV{VE_SERVICE}="ignore"` for USB-ID `16c0:0483`;
 - adds a line to `/data/rc.local`, so the rule comes back after a firmware update
   (`/data` survives updates);
 - reconnects if no data has arrived for 60 s.
 
-The status under the node *Set port* shows the result. If it says `noperm`, Node-RED is not
+The status under the node *Assign Teensy ports* shows the result. If it says `noperm`, Node-RED is not
 allowed to write to `/etc` or `/data`: then run `install-teensy-ignore.sh` once via SSH as root.
 
 Check (SSH): `udevadm info /dev/ttyACM0 | grep VE_SERVICE` should show `VE_SERVICE=ignore`.
+
+## Second Teensy: test bench (tab *Tesla BMS Test*)
+A second Teensy (for example a Teensy 4.0 with one or two modules, without CAN or charger) can be
+connected to another USB port of the GX to test modules / CMUs. It gets its own tab and dashboard
+page **Tesla BMS Test** (`/dashboard/tesla-bms-test`) with the same overview and history, plus
+firmware update and balancing for that Teensy. It sends nothing to Victron (no CAN connected).
+
+Which Teensy is which:
+- A Teensy is recognised by its **USB serial number** (`/dev/serial/by-id/usb-Teensyduino_USB_Serial_<number>-if00`),
+  not by the USB socket, so swapping sockets changes nothing.
+- The first time with more than one Teensy, both are opened; as soon as both send data the one with
+  the **most modules** becomes the main battery (tab *Tesla BMS*), the other the test bench.
+- The assignment is saved in `/data/home/nodered/.node-red/teslabms-teensy-roles.json`. After a
+  restart of the GX it is used straight away, and the main tab never takes the test Teensy (also not
+  when the main Teensy is unplugged).
+- The history charts start only once the assignment is certain, so no data of the other Teensy ends up in them.
+- Assign again (e.g. other Teensy as main battery): delete that file via SSH and restart Node-RED.
+
+Firmware updates always flash exactly the Teensy of that tab (`teensy_flash.py --port ...`), and
+never two at the same time.
 
 ## Power
 In this setup the Teensy is powered only from USB: the BMS runs as long as the GX is on.

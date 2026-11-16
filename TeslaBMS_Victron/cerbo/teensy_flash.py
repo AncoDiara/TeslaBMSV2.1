@@ -11,7 +11,8 @@ bootloader protocol (same as PJRC's teensy_loader_cli for the MK20DX256 / IMXRT1
   python3 teensy_flash.py --latest --yes     # same, without asking (used by Node-RED)
   python3 teensy_flash.py --file x.hex       # flash a local .hex
   add --board T32 / T40 to choose the Teensy model (default: auto = from the running
-  firmware, otherwise Teensy 3.2); add --dry-run to do everything except writing
+  firmware, otherwise Teensy 3.2); add --port /dev/serial/by-id/... to choose the Teensy
+  when more than one is connected; add --dry-run to do everything except writing
 
 The model of the .hex file is checked against the chosen model (a Teensy 4 program
 lives at 0x60000000 and starts with a FlexSPI boot header), so a wrong file is refused.
@@ -176,7 +177,12 @@ def parse_ihex(text, board):
 
 
 # ---------------------------------------------------------------- Teensy
+SERIAL_PORT = None   # --port: the Teensy to use when more than one is connected
+
+
 def find_serial_port():
+    if SERIAL_PORT:
+        return SERIAL_PORT if os.path.exists(SERIAL_PORT) else None
     p = sorted(glob.glob("/dev/serial/by-id/*eensy*"))
     if p:
         return p[0]
@@ -255,7 +261,10 @@ def flash(image, used, board, dry_run=False):
     if not dev:
         port = find_serial_port()
         if not port:
-            raise RuntimeError("Teensy not found (no serial port and no bootloader)")
+            raise RuntimeError("Teensy not found (no serial port%s and no bootloader)" %
+                               ((" " + SERIAL_PORT) if SERIAL_PORT else ""))
+        if not SERIAL_PORT and len(glob.glob("/dev/serial/by-id/*eensy*")) > 1:
+            raise RuntimeError("more than one Teensy connected: choose one with --port /dev/serial/by-id/...")
         log("Teensy to bootloader via %s" % port)
         soft_reboot(port)
         end = time.time() + 15
@@ -308,11 +317,14 @@ def main():
     g.add_argument("--file", help="flash a local .hex file")
     ap.add_argument("--board", default="auto", choices=["auto"] + sorted(BOARDS),
                     help="Teensy model (auto = from the running firmware, otherwise %s)" % DEFAULT_BOARD)
+    ap.add_argument("--port", help="serial port of the Teensy (/dev/serial/by-id/...) when more than one is connected")
     ap.add_argument("--yes", action="store_true", help="do not ask for confirmation")
     ap.add_argument("--dry-run", action="store_true", help="everything except actually flashing")
     ap.add_argument("--no-serial", action="store_true",
                     help="do not read the serial port for the running version (Node-RED already reads it)")
     a = ap.parse_args()
+    global SERIAL_PORT
+    SERIAL_PORT = a.port or None
 
     running, running_hw = (None, None) if a.no_serial else read_running(timeout=12.0 if a.check else 7.0)
     board = a.board if a.board != "auto" else (running_hw if running_hw in BOARDS else DEFAULT_BOARD)
