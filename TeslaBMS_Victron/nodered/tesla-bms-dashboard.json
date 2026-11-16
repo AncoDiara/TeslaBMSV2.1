@@ -7,7 +7,7 @@
     "env": [
       {
         "name": "TESLABMS_FLOW_VERSION",
-        "value": "v26.24",
+        "value": "v26.25",
         "type": "str"
       }
     ],
@@ -114,7 +114,7 @@
     "id": "8a93b740a755f7ad",
     "type": "serial-port",
     "name": "Teensy USB",
-    "serialport": "/dev/ttyACM0",
+    "serialport": "/data/home/nodered/.node-red/teslabms-tty-main",
     "serialbaud": "115200",
     "databits": "8",
     "parity": "none",
@@ -392,7 +392,7 @@
     "type": "function",
     "z": "5fce40a6fa720026",
     "name": "Assign Teensy ports",
-    "func": "// Assigns the Teensy USB ports: main battery (this tab) and test bench (tab \"Tesla BMS Test\").\n// A Teensy is recognised by its USB serial number (/dev/serial/by-id/...-<serial>-if00).\n// The assignment is saved in a file, so a restart of the GX never swaps them.\n// First assignment with more than one Teensy and nothing saved yet: both are opened, and as\n// soon as both send data the one with the most modules (\"me\" in the JSON) becomes the main battery.\n// To assign again: delete teslabms-teensy-roles.json in the Node-RED folder and restart Node-RED.\nconst out = String(msg.payload || '');\nconst get = (k) => { const m = out.match(new RegExp('^' + k + '=(.*)$', 'm')); return m ? m[1].trim() : ''; };\nconst udev = get('UDEV'), rc = get('RCLOCAL');\nconst perm = (udev === 'noperm' || rc === 'noperm') ? '  (no rights: run install-teensy-ignore.sh once via SSH)' : '';\nconst ports = (out.match(/^PORT=.+$/mg) || []).map(l => l.slice(5).trim()).filter(Boolean);\nconst serialOf = (p) => { const m = p.match(/_([0-9A-Za-z]+)-if\\d+$/); return m ? m[1] : p; };\nconst bySerial = {};\nports.forEach(p => { bySerial[serialOf(p)] = p; });\nconst serials = Object.keys(bySerial).sort();\nconst roles = Object.assign({}, global.get('teensyRoles') || {});\nconst info = global.get('teensyInfo') || {};\nconst now = Date.now();\nconst fresh = (s) => !!(info[s] && (now - info[s].ts) < 120000);\n\nlet main = (roles.main && bySerial[roles.main]) ? roles.main : null;\nlet sure = !!main;\nif (!main) {\n    const cands = serials.filter(s => s !== roles.test);\n    if (cands.length === 1) {\n        main = cands[0]; sure = true;\n    } else if (cands.length > 1) {\n        if (cands.every(fresh)) {\n            main = cands.reduce((x, y) => ((info[y].me || 0) > (info[x].me || 0) ? y : x));\n            sure = true;\n        } else {\n            const prev = flow.get('mainSerial');\n            main = (prev && cands.includes(prev)) ? prev : cands[0];   // provisional\n        }\n    }\n}\nlet test = (roles.test && bySerial[roles.test] && roles.test !== main) ? roles.test : (serials.find(s => s !== main) || null);\nflow.set('mainSerial', main);\nglobal.set('teensyRolesOk', sure || !!roles.main);   // saved assignment: the ports are known even if one Teensy is unplugged\n\nlet save = null;\nif (sure && (roles.main !== main || (test && roles.test !== test))) {\n    const r = { main: main, test: test || roles.test || null, saved: new Date().toISOString() };\n    global.set('teensyRoles', r);\n    save = { payload: JSON.stringify(r) };\n}\n\n// main battery port (reconnect when there is no data for 60 s, at most once per 60 s)\nlet m1 = null;\nconst mainPort = main ? bySerial[main] : null;\nif (mainPort) {\n    const cur = flow.get('teensyPort');\n    const silent = (now - (flow.get('teensyLastData') || 0)) > 60000;\n    const lr = context.get('lastReconnect') || 0;\n    if (mainPort !== cur || (silent && now - lr > 60000)) {\n        flow.set('teensyPort', mainPort);\n        context.set('lastReconnect', now);\n        m1 = { payload: { serialport: mainPort, serialbaud: 115200 } };\n    }\n}\nconst short = (s) => s ? s : '-';\nnode.status({ fill: !mainPort ? 'red' : (perm ? 'yellow' : (sure ? 'green' : 'yellow')), shape: mainPort ? 'dot' : 'ring',\n    text: (mainPort ? '' : 'main Teensy not found  ') + 'main ' + short(main) + (sure ? '' : ' (provisional)') + '  test ' + short(test) + '  udev:' + udev + perm });\nreturn [m1, { payload: test ? bySerial[test] : '' }, save];\n",
+    "func": "// Assigns the Teensy USB ports: main battery (this tab) and test bench (tab \"Tesla BMS Test\").\n// A Teensy is recognised by its USB serial number (/dev/serial/by-id/...-<serial>-if00).\n// The assignment is saved in a file, so a restart of the GX never swaps them.\n// First assignment with more than one Teensy and nothing saved yet: both are opened, and as\n// soon as both send data the one with the most modules (\"me\" in the JSON) becomes the main battery.\n// To assign again: delete teslabms-teensy-roles.json in the Node-RED folder and restart Node-RED.\nconst out = String(msg.payload || '');\nconst get = (k) => { const m = out.match(new RegExp('^' + k + '=(.*)$', 'm')); return m ? m[1].trim() : ''; };\nconst udev = get('UDEV'), rc = get('RCLOCAL');\nconst perm = (udev === 'noperm' || rc === 'noperm') ? '  (no rights: run install-teensy-ignore.sh once via SSH)' : '';\nconst ports = (out.match(/^PORT=.+$/mg) || []).map(l => l.slice(5).trim()).filter(Boolean);\nconst serialOf = (p) => { const m = p.match(/_([0-9A-Za-z]+)-if\\d+$/); return m ? m[1] : p; };\nconst bySerial = {};\nports.forEach(p => { bySerial[serialOf(p)] = p; });\nconst serials = Object.keys(bySerial).sort();\nconst roles = Object.assign({}, global.get('teensyRoles') || {});\nconst info = global.get('teensyInfo') || {};\nconst now = Date.now();\nconst fresh = (s) => !!(info[s] && (now - info[s].ts) < 120000);\n\nlet main = (roles.main && bySerial[roles.main]) ? roles.main : null;\nlet sure = !!main;\nif (!main) {\n    const cands = serials.filter(s => s !== roles.test);\n    if (cands.length === 1) {\n        main = cands[0]; sure = true;\n    } else if (cands.length > 1) {\n        const best = cands.every(fresh) ? cands.slice().sort((x, y) => (info[y].me || 0) - (info[x].me || 0)) : null;\n        if (best && (info[best[0]].me || 0) > (info[best[1]].me || 0)) {\n            main = best[0];      // clearly the most modules\n            sure = true;\n        } else {\n            const prev = flow.get('mainSerial');\n            main = (prev && cands.includes(prev)) ? prev : cands[0];   // provisional\n        }\n    }\n}\n// Safety net: a saved assignment where the test bench Teensy clearly has more modules than the\n// main one (e.g. saved while both tabs read the same Teensy) is corrected.\nif (main && roles.main === main) {\n    const other = serials.find(s => s !== main);\n    if (other && fresh(main) && fresh(other) && (info[other].me || 0) > (info[main].me || 0)) {\n        main = other;\n        roles.test = null;\n    }\n}\nlet test = (roles.test && bySerial[roles.test] && roles.test !== main) ? roles.test : (serials.find(s => s !== main) || null);\nflow.set('mainSerial', main);\nglobal.set('teensyRolesOk', sure || !!roles.main);   // saved assignment: the ports are known even if one Teensy is unplugged\n\nlet save = null;\nif (sure && (roles.main !== main || (test && roles.test !== test))) {\n    const r = { main: main, test: test || roles.test || null, saved: new Date().toISOString() };\n    global.set('teensyRoles', r);\n    save = { payload: JSON.stringify(r) };\n}\n\n// main battery port (reconnect when there is no data for 60 s, at most once per 60 s)\nlet m1 = null;\nconst mainPort = main ? bySerial[main] : null;\nif (mainPort) {\n    const cur = flow.get('teensyPort');\n    const silent = (now - (flow.get('teensyLastData') || 0)) > 60000;\n    const lr = context.get('lastReconnect') || 0;\n    if (mainPort !== cur || (silent && now - lr > 60000)) {\n        flow.set('teensyPort', mainPort);\n        context.set('lastReconnect', now);\n        m1 = { payload: mainPort + ' /data/home/nodered/.node-red/teslabms-tty-main' };   // -> ln -sfn <Teensy> <main link> -> reopen\n    }\n}\nconst short = (s) => s ? s : '-';\nnode.status({ fill: !mainPort ? 'red' : (perm ? 'yellow' : (sure ? 'green' : 'yellow')), shape: mainPort ? 'dot' : 'ring',\n    text: (mainPort ? '' : 'main Teensy not found  ') + 'main ' + short(main) + (sure ? '' : ' (provisional)') + '  test ' + short(test) + '  udev:' + udev + perm });\nreturn [m1, { payload: test ? bySerial[test] : '' }, save];\n",
     "outputs": 3,
     "timeout": 0,
     "noerr": 0,
@@ -403,7 +403,7 @@
     "y": 80,
     "wires": [
       [
-        "5f8862805e4e5f39"
+        "c9d521873da90738"
       ],
       [
         "16dd19f72ac35d6b"
@@ -424,8 +424,8 @@
     "z": "5fce40a6fa720026",
     "name": "Teensy port",
     "serial": "8a93b740a755f7ad",
-    "x": 770,
-    "y": 80,
+    "x": 1000,
+    "y": 100,
     "wires": [
       []
     ]
@@ -971,7 +971,7 @@
     "id": "46a7f63d0a139335",
     "type": "serial-port",
     "name": "Teensy USB test",
-    "serialport": "/dev/teslabms-test-teensy-not-assigned",
+    "serialport": "/data/home/nodered/.node-red/teslabms-tty-test",
     "serialbaud": "115200",
     "databits": "8",
     "parity": "none",
@@ -1248,7 +1248,7 @@
     "z": "1c876e5c8d682a9e",
     "name": "Teensy port",
     "serial": "46a7f63d0a139335",
-    "x": 770,
+    "x": 1000,
     "y": 80,
     "wires": [
       []
@@ -1421,7 +1421,7 @@
     "type": "function",
     "z": "1c876e5c8d682a9e",
     "name": "Set test port",
-    "func": "// Port of the test bench Teensy, decided by \"Assign Teensy ports\" in the tab \"Tesla BMS\".\nconst port = msg.payload;\nif (!port) {\n    node.status({ fill: 'grey', shape: 'ring', text: 'no test Teensy connected' });\n    return null;\n}\nconst now = Date.now();\nconst cur = flow.get('teensyPort');\nconst silent = (now - (flow.get('teensyLastData') || 0)) > 60000;\nconst lr = context.get('lastReconnect') || 0;\nnode.status({ fill: 'green', shape: 'dot', text: port.replace('/dev/serial/by-id/', '') });\nif (port !== cur || (silent && now - lr > 60000)) {\n    flow.set('teensyPort', port);\n    context.set('lastReconnect', now);\n    return { payload: { serialport: port, serialbaud: 115200 } };\n}\nreturn null;\n",
+    "func": "// Port of the test bench Teensy, decided by \"Assign Teensy ports\" in the tab \"Tesla BMS\".\nconst port = msg.payload;\nif (!port) {\n    node.status({ fill: 'grey', shape: 'ring', text: 'no test Teensy connected' });\n    return null;\n}\nconst now = Date.now();\nconst cur = flow.get('teensyPort');\nconst silent = (now - (flow.get('teensyLastData') || 0)) > 60000;\nconst lr = context.get('lastReconnect') || 0;\nnode.status({ fill: 'green', shape: 'dot', text: port.replace('/dev/serial/by-id/', '') });\nif (port !== cur || (silent && now - lr > 60000)) {\n    flow.set('teensyPort', port);\n    context.set('lastReconnect', now);\n    return { payload: port + ' /data/home/nodered/.node-red/teslabms-tty-test' };   // -> ln -sfn <Teensy> <test link> -> reopen\n}\nreturn null;\n",
     "outputs": 1,
     "timeout": 0,
     "noerr": 0,
@@ -1432,7 +1432,7 @@
     "y": 80,
     "wires": [
       [
-        "815dcd0a3e2b0f04"
+        "7a42dfefea2d62a1"
       ]
     ]
   },
@@ -1444,5 +1444,89 @@
     "x": 300,
     "y": 40,
     "wires": []
+  },
+  {
+    "id": "c9d521873da90738",
+    "type": "exec",
+    "z": "5fce40a6fa720026",
+    "name": "point teslabms-tty-main at the Teensy",
+    "command": "ln -sfn",
+    "addpay": "payload",
+    "append": "",
+    "useSpawn": "false",
+    "timer": "10",
+    "winHide": false,
+    "oldrc": false,
+    "x": 620,
+    "y": 100,
+    "wires": [
+      [],
+      [],
+      [
+        "ae108157c1889ecc"
+      ]
+    ]
+  },
+  {
+    "id": "ae108157c1889ecc",
+    "type": "function",
+    "z": "5fce40a6fa720026",
+    "name": "reopen port",
+    "func": "// The symlink /data/home/nodered/.node-red/teslabms-tty-main now points at the right Teensy: reopen this tab's own serial connection.\n// (Each tab has its own fixed port name, so two tabs never share a connection.)\nconst ok = msg.payload && msg.payload.code === 0;\nnode.status({ fill: ok ? 'green' : 'red', shape: 'dot', text: ok ? 'reopened' : 'ln failed: ' + JSON.stringify(msg.payload) });\nreturn { payload: { serialport: '/data/home/nodered/.node-red/teslabms-tty-main', serialbaud: 115200 } };\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 820,
+    "y": 100,
+    "wires": [
+      [
+        "5f8862805e4e5f39"
+      ]
+    ]
+  },
+  {
+    "id": "7a42dfefea2d62a1",
+    "type": "exec",
+    "z": "1c876e5c8d682a9e",
+    "name": "point teslabms-tty-test at the Teensy",
+    "command": "ln -sfn",
+    "addpay": "payload",
+    "append": "",
+    "useSpawn": "false",
+    "timer": "10",
+    "winHide": false,
+    "oldrc": false,
+    "x": 620,
+    "y": 80,
+    "wires": [
+      [],
+      [],
+      [
+        "1e01873776be80c0"
+      ]
+    ]
+  },
+  {
+    "id": "1e01873776be80c0",
+    "type": "function",
+    "z": "1c876e5c8d682a9e",
+    "name": "reopen port",
+    "func": "// The symlink /data/home/nodered/.node-red/teslabms-tty-test now points at the right Teensy: reopen this tab's own serial connection.\n// (Each tab has its own fixed port name, so two tabs never share a connection.)\nconst ok = msg.payload && msg.payload.code === 0;\nnode.status({ fill: ok ? 'green' : 'red', shape: 'dot', text: ok ? 'reopened' : 'ln failed: ' + JSON.stringify(msg.payload) });\nreturn { payload: { serialport: '/data/home/nodered/.node-red/teslabms-tty-test', serialbaud: 115200 } };\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 820,
+    "y": 80,
+    "wires": [
+      [
+        "815dcd0a3e2b0f04"
+      ]
+    ]
   }
 ]

@@ -50,6 +50,12 @@ Which Teensy is which:
   restart of the GX it is used straight away, and the main tab never takes the test Teensy (also not
   when the main Teensy is unplugged).
 - The history charts start only once the assignment is certain, so no data of the other Teensy ends up in them.
+- Each tab opens its **own fixed port name**, a symlink in the Node-RED folder:
+  `teslabms-tty-main` and `teslabms-tty-test`, pointed at the right Teensy by the assignment
+  (`ln -sfn`). The serial node of Node-RED shares connections by port name, so with these
+  names two tabs can never end up reading the same Teensy.
+- Safety net: if the saved assignment is wrong (the test Teensy reports clearly more modules than
+  the main one), it is corrected automatically.
 - Assign again (e.g. other Teensy as main battery): delete that file via SSH and restart Node-RED.
 
 Firmware updates always flash exactly the Teensy of that tab (`teensy_flash.py --port ...`), and
