@@ -3641,6 +3641,26 @@ case 'r':  //r for reset
 
   // NEW: direct commands outside the menu (used by the Node-RED dashboard):
   //   'J' = JSON output on (and save), 'T' = back to text output (and save)
+  //   'B<start>,<stop>' = balancing start / stop difference in mV (and save), e.g. "B7,3"
+  if (menuload == 0 && incomingByte == 'B')
+  {
+    long bStart = Serial.parseInt();
+    long bStop = Serial.parseInt();
+    SERIALCONSOLE.println();
+    if (bStop >= 2 && bStop <= 50 && bStart > bStop && bStart <= 100)
+    {
+      settings.balanceStart = bStart / 1000.0f;
+      settings.balanceHyst = bStop / 1000.0f;
+      EEPROM.put(0, settings);
+      SERIALCONSOLE.print("Balancing: start > "); SERIALCONSOLE.print(bStart);
+      SERIALCONSOLE.print(" mV, down to "); SERIALCONSOLE.print(bStop); SERIALCONSOLE.println(" mV (saved)");
+    }
+    else
+    {
+      SERIALCONSOLE.println("Balancing: invalid values (stop 2-50 mV, start > stop, max 100 mV) - not changed");
+    }
+    jsonTimer = 0; // send JSON immediately, so the dashboard shows the new values
+  }
   if (menuload == 0 && (incomingByte == 'J' || incomingByte == 'T'))
   {
     settings.JsonOut = (incomingByte == 'J') ? 1 : 0;
