@@ -24,6 +24,9 @@
   TeslaBMS_Victron - based on TeslaBMSV2 (SimpBMS, firmver 230719)
   Adapted for Tesla 6S modules on Victron VenusOS (DVCC / CAN-bus BMS).
 
+  Runs on Teensy 3.2 (SimpBMS V2) and Teensy 4.0/4.1 with the same code:
+  pins and serial ports per model in board.h, CAN/watchdog/reset reason in hal.cpp.
+
   Main changes compared to TeslaBMSV2:
   - Fixed topology instead of "detect whatever happens to be found":
       Scells   = 6 (24 V, 1 module per string) or 12 (48 V, 2 modules in series)
@@ -54,7 +57,7 @@
 #include "Logger.h"
 #include <ADC.h> //https://github.com/pedvide/ADC
 #include <EEPROM.h>
-#include <FlexCAN.h> //https://github.com/collin80/FlexCAN_Library 
+#include "hal.h"      // CAN, watchdog, reset reason per Teensy model (board.h = pins)
 #include <SPI.h>
 #include "version.h"     // firmware version (FW_YEAR.FW_BUILD), raised with every commit
 #include "LowPassFilter.h" // built-in low-pass filter (replaces the external Filters library)
@@ -109,21 +112,7 @@ float filterFrequency = 5.0 ;
 LowPassFilter lowpassFilter( filterFrequency );
 
 //Simple BMS V2 wiring//
-const int ACUR2 = A0; // current 1
-const int ACUR1 = A1; // current 2
-const int IN1 = 17; // input 1 - high active
-const int IN2 = 16; // input 2- high active
-const int IN3 = 18; // input 1 - high active
-const int IN4 = 19; // input 2- high active
-const int OUT1 = 11;// output 1 - high active
-const int OUT2 = 12;// output 2 - high active
-const int OUT3 = 20;// output 3 - high active
-const int OUT4 = 21;// output 4 - high active
-const int OUT5 = 22;// output 5 - Low active
-const int OUT6 = 23;// output 6 - Low active
-const int OUT7 = 5;// output 7 - Low active
-const int OUT8 = 6;// output 8 - Low active
-const int led = 13;
+// Pins (IN1..4, OUT1..8, ACUR1/2, led) and serial ports: see board.h
 const int BMBfault = 11;
 
 byte bmsstatus = 0;
@@ -401,8 +390,8 @@ void applyTopology()
   bms.printTopology();
 }
 
-CAN_message_t msg;
-CAN_message_t inMsg;
+BmsCanMsg msg;     // outgoing CAN message (zero-initialised, fields are kept between messages)
+BmsCanMsg inMsg;   // incoming CAN message
 
 uint32_t lastUpdate;
 
@@ -473,15 +462,7 @@ void setup()
   if (settings.JsonOut == 1) debug = 0; // JSON mode: no text output in between
   if (!(settings.balanceStart >= 0.002f && settings.balanceStart <= 0.5f)) settings.balanceStart = 0.015f;
 
-  Can0.begin(settings.canSpeed);
-  CAN_filter_t allPassFilter; // Enables extended addresses
-  allPassFilter.id = 0;
-  allPassFilter.ext = 1;
-  allPassFilter.rtr = 0;
-
-  for (int filterNum = 4; filterNum < 16; filterNum++) {
-    Can0.setFilter(allPassFilter, filterNum);
-  }
+  bmsCan.begin(settings.canSpeed);   // all standard and extended identifiers (hal.cpp)
 
 
 
@@ -497,7 +478,7 @@ void setup()
 
   SERIALCONSOLE.begin(115200);
   SERIALCONSOLE.println("Starting up!");
-  SERIALCONSOLE.println("SimpBMS V2 Tesla - TeslaBMS_Victron (Claude Tesla BMS)");
+  SERIALCONSOLE.print("TeslaBMS_Victron (Claude Tesla BMS) on "); SERIALCONSOLE.println(BOARD_NAME);
   SERIALCONSOLE.print("Firmware v");
   SERIALCONSOLE.print(FW_YEAR);
   SERIALCONSOLE.print(".");
@@ -508,39 +489,19 @@ void setup()
   SERIALCONSOLE.println(__TIME__);
   calcFirmwareDate();
 
-  Serial2.begin(115200); //display and can adpater canbus
+  SERIALDISP.begin(115200); //display and can adpater canbus
 
   // Display reason the Teensy was last reset
   Serial.println();
   Serial.println("Reason for last Reset: ");
 
-  if (RCM_SRS1 & RCM_SRS1_SACKERR)   Serial.println("Stop Mode Acknowledge Error Reset");
-  if (RCM_SRS1 & RCM_SRS1_MDM_AP)    Serial.println("MDM-AP Reset");
-  if (RCM_SRS1 & RCM_SRS1_SW)        Serial.println("Software Reset");                   // reboot with SCB_AIRCR = 0x05FA0004
-  if (RCM_SRS1 & RCM_SRS1_LOCKUP)    Serial.println("Core Lockup Event Reset");
-  if (RCM_SRS0 & RCM_SRS0_POR)       Serial.println("Power-on Reset");                   // removed / applied power
-  if (RCM_SRS0 & RCM_SRS0_PIN)       Serial.println("External Pin Reset");               // Reboot with software download
-  if (RCM_SRS0 & RCM_SRS0_WDOG)      Serial.println("Watchdog(COP) Reset");              // WDT timed out
-  if (RCM_SRS0 & RCM_SRS0_LOC)       Serial.println("Loss of External Clock Reset");
-  if (RCM_SRS0 & RCM_SRS0_LOL)       Serial.println("Loss of Lock in PLL Reset");
-  if (RCM_SRS0 & RCM_SRS0_LVD)       Serial.println("Low-voltage Detect Reset");
+  halPrintResetReason(Serial);
   Serial.println();
   ///////////////////
 
 
   // enable WDT
-  noInterrupts();                                         // don't allow interrupts while setting up WDOG
-  WDOG_UNLOCK = WDOG_UNLOCK_SEQ1;                         // unlock access to WDOG registers
-  WDOG_UNLOCK = WDOG_UNLOCK_SEQ2;
-  delayMicroseconds(1);                                   // Need to wait a bit..
-
-  WDOG_TOVALH = 0x1000;
-  WDOG_TOVALL = 0x0000;
-  WDOG_PRESC  = 0;
-  WDOG_STCTRLH |= WDOG_STCTRLH_ALLOWUPDATE |
-                  WDOG_STCTRLH_WDOGEN | WDOG_STCTRLH_WAITEN |
-                  WDOG_STCTRLH_STOPEN | WDOG_STCTRLH_CLKSRC;
-  interrupts();
+  halWatchdogStart();   // about 5.5 s (hal.cpp)
   /////////////////
 
 
@@ -613,10 +574,7 @@ void setup()
   //RISING/HIGH/CHANGE/LOW/FALLING
   attachInterrupt (IN4, isrCP , CHANGE); // attach BUTTON 1 interrupt handler [ pin# 7 ]
 
-  PMC_LVDSC1 =  PMC_LVDSC1_LVDV(1);  // enable hi v
-  PMC_LVDSC2 = PMC_LVDSC2_LVWIE | PMC_LVDSC2_LVWV(3); // 2.92-3.08v
-    attachInterruptVector(IRQ_LOW_VOLTAGE, low_voltage_isr);
-  NVIC_ENABLE_IRQ(IRQ_LOW_VOLTAGE);
+  halLowVoltageStart(low_voltage_isr);   // Teensy 3.2: save SOC at low supply voltage (hal.cpp)
 
     bmsstatus = Boot;
 }
@@ -624,7 +582,7 @@ void setup()
 void loop()
 {
 
-  while (Can0.available())
+  while (bmsCan.read(inMsg))
   {
     canread();
   }
@@ -2016,6 +1974,7 @@ unsigned long canSlowTimer = 0;
   Only when settings.JsonOut = 1 and the port is open on the PC/GX side.
   Fields:
     lt  duration of the last read round in ms (with many modules: keep it well below 3000)
+    hw  Teensy model (T32, T40, T41)
     fw  firmware version          st  bmsstatus (0 Boot,1 Ready,2 Drive,3 Charge,4 Precharge,5 Error)
     cvl/ccl/dcl  limits to Victron (V/A)    v pack voltage (V)   i current (A, + = charging)   soc (%)
     so/se  strings online/expected   mo/me modules online/expected   bal number of cells balancing
@@ -2037,6 +1996,7 @@ void printJson()
   char id[9];
   SERIALCONSOLE.print("{\"fw\":\"");
   SERIALCONSOLE.print(FW_YEAR); SERIALCONSOLE.print("."); SERIALCONSOLE.print(FW_BUILD & 0xFF);
+  SERIALCONSOLE.print("\",\"hw\":\""); SERIALCONSOLE.print(BOARD_HW);   // Teensy model: T32, T40, T41
   SERIALCONSOLE.print("\",\"st\":"); SERIALCONSOLE.print(bmsstatus);
   SERIALCONSOLE.print(",\"cvl\":"); jsonFloat(cvlActual, 2);
   SERIALCONSOLE.print(",\"ccl\":"); jsonFloat(chargecurrent * 0.1f, 1);
@@ -2109,7 +2069,7 @@ void VEcan() //communication with Victron system over CAN
   msg.buf[5] = highByte(discurrent);
   msg.buf[6] = lowByte(uint16_t((settings.DischVsetpoint * settings.Scells) * 10));
   msg.buf[7] = highByte(uint16_t((settings.DischVsetpoint * settings.Scells) * 10));
-  Can0.write(msg);
+  bmsCan.write(msg);
 
   msg.id  = 0x355;
   msg.len = 8;
@@ -2121,7 +2081,7 @@ void VEcan() //communication with Victron system over CAN
   msg.buf[5] = highByte(uint16_t(SOC * 100));
   msg.buf[6] = 0;
   msg.buf[7] = 0;
-  Can0.write(msg);
+  bmsCan.write(msg);
 
   msg.id  = 0x356;
   msg.len = 8;
@@ -2143,7 +2103,7 @@ void VEcan() //communication with Victron system over CAN
   msg.buf[5] = highByte(int16_t(bms.getAvgTemperature() * 10));
   msg.buf[6] = 0;
   msg.buf[7] = 0;
-  Can0.write(msg);
+  bmsCan.write(msg);
 
 
   delay(2);
@@ -2157,7 +2117,7 @@ void VEcan() //communication with Victron system over CAN
   msg.buf[5] = warning[1];// High Discharge Current | Low Temperature
   msg.buf[6] = warning[2];//Internal Failure | High Charge current
   msg.buf[7] = warning[3];// Cell Imbalance
-  Can0.write(msg);
+  bmsCan.write(msg);
 
   msg.id  = 0x35E;
   msg.len = 8;
@@ -2169,21 +2129,21 @@ void VEcan() //communication with Victron system over CAN
   msg.buf[5] = bmsname[5];
   msg.buf[6] = bmsname[6];
   msg.buf[7] = bmsname[7];
-  Can0.write(msg);
+  bmsCan.write(msg);
 
   delay(2);
   // battery name part 1 (characters 1-8)
   msg.id  = 0x370;
   msg.len = 8;
   for (int i = 0; i < 8; i++) msg.buf[i] = batteryName[i];
-  Can0.write(msg);
+  bmsCan.write(msg);
 
   delay(2);
   // battery name part 2 (characters 9-16)
   msg.id  = 0x371;
   msg.len = 8;
   for (int i = 0; i < 8; i++) msg.buf[i] = batteryName[8 + i];
-  Can0.write(msg);
+  bmsCan.write(msg);
 
   delay(2);
   msg.id  = 0x373;
@@ -2196,7 +2156,7 @@ void VEcan() //communication with Victron system over CAN
   msg.buf[5] = highByte(uint16_t(bms.getLowTemperature() + 273.15));
   msg.buf[6] = lowByte(uint16_t(bms.getHighTemperature() + 273.15));
   msg.buf[7] = highByte(uint16_t(bms.getHighTemperature() + 273.15));
-  Can0.write(msg);
+  bmsCan.write(msg);
 
   delay(2);
   msg.id  = 0x379; //Installed capacity
@@ -2209,7 +2169,7 @@ void VEcan() //communication with Victron system over CAN
   msg.buf[5] = 0x00;
   msg.buf[6] = 0x00;
   msg.buf[7] = 0x00;
-  Can0.write(msg);
+  bmsCan.write(msg);
   /*
       delay(2);
     msg.id  = 0x378; //Installed capacity
@@ -2243,13 +2203,13 @@ void VEcan() //communication with Victron system over CAN
     msg.buf[5] = highByte(uint16_t(settings.Pstrings * settings.CAP));
     msg.buf[6] = 0x00;
     msg.buf[7] = 0x00;
-    Can0.write(msg);
+    bmsCan.write(msg);
     delay(2);
 
-    msg.id = 0x374; msg.len = 8; canLocationText(msg.buf, bms.lowCellAddr, bms.lowCellNum, 'C');  Can0.write(msg); delay(2);
-    msg.id = 0x375; msg.len = 8; canLocationText(msg.buf, bms.highCellAddr, bms.highCellNum, 'C'); Can0.write(msg); delay(2);
-    msg.id = 0x376; msg.len = 8; canLocationText(msg.buf, bms.lowTempAddr, bms.lowTempNum, 'T');  Can0.write(msg); delay(2);
-    msg.id = 0x377; msg.len = 8; canLocationText(msg.buf, bms.highTempAddr, bms.highTempNum, 'T'); Can0.write(msg); delay(2);
+    msg.id = 0x374; msg.len = 8; canLocationText(msg.buf, bms.lowCellAddr, bms.lowCellNum, 'C');  bmsCan.write(msg); delay(2);
+    msg.id = 0x375; msg.len = 8; canLocationText(msg.buf, bms.highCellAddr, bms.highCellNum, 'C'); bmsCan.write(msg); delay(2);
+    msg.id = 0x376; msg.len = 8; canLocationText(msg.buf, bms.lowTempAddr, bms.lowTempNum, 'T');  bmsCan.write(msg); delay(2);
+    msg.id = 0x377; msg.len = 8; canLocationText(msg.buf, bms.highTempAddr, bms.highTempNum, 'T'); bmsCan.write(msg); delay(2);
   }
 
   msg.id  = 0x372;
@@ -2269,7 +2229,7 @@ void VEcan() //communication with Victron system over CAN
     msg.buf[6] = lowByte(modOff);                                  // modules offline
     msg.buf[7] = highByte(modOff);
   }
-  Can0.write(msg);
+  bmsCan.write(msg);
 
 }
 
@@ -2764,8 +2724,8 @@ void menu()
         if (Serial.available() > 0)
         {
           settings.canSpeed = Serial.parseInt() * 1000;
-          Can0.end();
-          Can0.begin(settings.canSpeed);
+          bmsCan.end();
+          bmsCan.begin(settings.canSpeed);
           menuload = 1;
           incomingByte = 'e';
         }
@@ -3718,7 +3678,7 @@ int pgnFromCANId(int canId)
 
 void canread()
 {
-  Can0.read(inMsg);
+  // inMsg has just been read by bmsCan.read() in loop()
   // Read data: len = data length, buf = data byte(s)
   if ( settings.cursens == Canbus)
   {
@@ -4311,10 +4271,7 @@ void outputdebug()
 
 void resetwdog()
 {
-  noInterrupts();                                     //   No - reset WDT
-  WDOG_REFRESH = 0xA602;
-  WDOG_REFRESH = 0xB480;
-  interrupts();
+  halWatchdogKick();
 }
 
 void pwmcomms()
@@ -4346,17 +4303,17 @@ void pwmcomms()
 
 void dashupdate()
 {
-  Serial2.write("stat.txt=");
-  Serial2.write(0x22);
+  SERIALDISP.write("stat.txt=");
+  SERIALDISP.write(0x22);
   if (settings.ESSmode == 1)
   {
     switch (bmsstatus)
     {
       case (Boot):
-        Serial2.print(" Active ");
+        SERIALDISP.print(" Active ");
         break;
       case (Error):
-        Serial2.print(" Error ");
+        SERIALDISP.print(" Error ");
         break;
     }
   }
@@ -4365,95 +4322,95 @@ void dashupdate()
     switch (bmsstatus)
     {
       case (Boot):
-        Serial2.print(" Boot ");
+        SERIALDISP.print(" Boot ");
         break;
 
       case (Ready):
-        Serial2.print(" Ready ");
+        SERIALDISP.print(" Ready ");
         break;
 
       case (Precharge):
-        Serial2.print(" Precharge ");
+        SERIALDISP.print(" Precharge ");
         break;
 
       case (Drive):
-        Serial2.print(" Drive ");
+        SERIALDISP.print(" Drive ");
         break;
 
       case (Charge):
-        Serial2.print(" Charge ");
+        SERIALDISP.print(" Charge ");
         break;
 
       case (Error):
-        Serial2.print(" Error ");
+        SERIALDISP.print(" Error ");
         break;
     }
   }
-  Serial2.write(0x22);
-  Serial2.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
-  Serial2.write(0xff);
-  Serial2.write(0xff);
-  Serial2.print("soc.val=");
-  Serial2.print(SOC);
-  Serial2.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
-  Serial2.write(0xff);
-  Serial2.write(0xff);
-  Serial2.print("soc1.val=");
-  Serial2.print(SOC);
-  Serial2.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
-  Serial2.write(0xff);
-  Serial2.write(0xff);
-  Serial2.print("current.val=");
-  Serial2.print(currentact / 100, 0);
-  Serial2.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
-  Serial2.write(0xff);
-  Serial2.write(0xff);
-  Serial2.print("temp.val=");
-  Serial2.print(bms.getAvgTemperature(), 0);
-  Serial2.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
-  Serial2.write(0xff);
-  Serial2.write(0xff);
-  Serial2.print("templow.val=");
-  Serial2.print(bms.getLowTemperature(), 0);
-  Serial2.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
-  Serial2.write(0xff);
-  Serial2.write(0xff);
-  Serial2.print("temphigh.val=");
-  Serial2.print(bms.getHighTemperature(), 0);
-  Serial2.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
-  Serial2.write(0xff);
-  Serial2.write(0xff);
-  Serial2.print("volt.val=");
-  Serial2.print(bms.getPackVoltage() * 10, 0);
-  Serial2.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
-  Serial2.write(0xff);
-  Serial2.write(0xff);
-  Serial2.print("lowcell.val=");
-  Serial2.print(bms.getLowCellVolt() * 1000, 0);
-  Serial2.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
-  Serial2.write(0xff);
-  Serial2.write(0xff);
-  Serial2.print("highcell.val=");
-  Serial2.print(bms.getHighCellVolt() * 1000, 0);
-  Serial2.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
-  Serial2.write(0xff);
-  Serial2.write(0xff);
-  Serial2.print("firm.val=");
-  Serial2.print(firmver);
-  Serial2.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
-  Serial2.write(0xff);
-  Serial2.write(0xff);
-  Serial2.print("celldelta.val=");
-  Serial2.print((bms.getHighCellVolt() - bms.getLowCellVolt()) * 1000, 0);
-  Serial2.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
-  Serial2.write(0xff);
-  Serial2.write(0xff);
-  Serial2.write(0xff);
-  Serial2.print("cellbal.val=");
-  Serial2.print(bms.getBalancing());
-  Serial2.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
-  Serial2.write(0xff);
-  Serial2.write(0xff);
+  SERIALDISP.write(0x22);
+  SERIALDISP.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
+  SERIALDISP.write(0xff);
+  SERIALDISP.write(0xff);
+  SERIALDISP.print("soc.val=");
+  SERIALDISP.print(SOC);
+  SERIALDISP.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
+  SERIALDISP.write(0xff);
+  SERIALDISP.write(0xff);
+  SERIALDISP.print("soc1.val=");
+  SERIALDISP.print(SOC);
+  SERIALDISP.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
+  SERIALDISP.write(0xff);
+  SERIALDISP.write(0xff);
+  SERIALDISP.print("current.val=");
+  SERIALDISP.print(currentact / 100, 0);
+  SERIALDISP.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
+  SERIALDISP.write(0xff);
+  SERIALDISP.write(0xff);
+  SERIALDISP.print("temp.val=");
+  SERIALDISP.print(bms.getAvgTemperature(), 0);
+  SERIALDISP.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
+  SERIALDISP.write(0xff);
+  SERIALDISP.write(0xff);
+  SERIALDISP.print("templow.val=");
+  SERIALDISP.print(bms.getLowTemperature(), 0);
+  SERIALDISP.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
+  SERIALDISP.write(0xff);
+  SERIALDISP.write(0xff);
+  SERIALDISP.print("temphigh.val=");
+  SERIALDISP.print(bms.getHighTemperature(), 0);
+  SERIALDISP.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
+  SERIALDISP.write(0xff);
+  SERIALDISP.write(0xff);
+  SERIALDISP.print("volt.val=");
+  SERIALDISP.print(bms.getPackVoltage() * 10, 0);
+  SERIALDISP.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
+  SERIALDISP.write(0xff);
+  SERIALDISP.write(0xff);
+  SERIALDISP.print("lowcell.val=");
+  SERIALDISP.print(bms.getLowCellVolt() * 1000, 0);
+  SERIALDISP.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
+  SERIALDISP.write(0xff);
+  SERIALDISP.write(0xff);
+  SERIALDISP.print("highcell.val=");
+  SERIALDISP.print(bms.getHighCellVolt() * 1000, 0);
+  SERIALDISP.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
+  SERIALDISP.write(0xff);
+  SERIALDISP.write(0xff);
+  SERIALDISP.print("firm.val=");
+  SERIALDISP.print(firmver);
+  SERIALDISP.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
+  SERIALDISP.write(0xff);
+  SERIALDISP.write(0xff);
+  SERIALDISP.print("celldelta.val=");
+  SERIALDISP.print((bms.getHighCellVolt() - bms.getLowCellVolt()) * 1000, 0);
+  SERIALDISP.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
+  SERIALDISP.write(0xff);
+  SERIALDISP.write(0xff);
+  SERIALDISP.write(0xff);
+  SERIALDISP.print("cellbal.val=");
+  SERIALDISP.print(bms.getBalancing());
+  SERIALDISP.write(0xff);  // We always have to send this three lines after each command sent to the nextion display.
+  SERIALDISP.write(0xff);
+  SERIALDISP.write(0xff);
 }
 
 
@@ -4494,7 +4451,7 @@ void chargercomms()
     msg.buf[6] = 0x00;
     msg.buf[7] = 0x00;
 
-    Can0.write(msg);
+    bmsCan.write(msg);
     msg.ext = 0;
   }
 
@@ -4510,7 +4467,7 @@ void chargercomms()
     msg.buf[5] = lowByte(chargecurrent / ncharger);
     msg.buf[6] = highByte(chargecurrent / ncharger);
 
-    Can0.write(msg);
+    bmsCan.write(msg);
   }
   if (settings.chargertype == BrusaNLG5)
   {
@@ -4543,7 +4500,7 @@ void chargercomms()
     msg.buf[6] = lowByte(chargecurrent / ncharger);
     msg.buf[3] = highByte(uint16_t(((settings.ChargeVsetpoint * settings.Scells ) - chargerendbulk) * 10));
     msg.buf[4] = lowByte(uint16_t(((settings.ChargeVsetpoint * settings.Scells ) - chargerendbulk)  * 10));
-    Can0.write(msg);
+    bmsCan.write(msg);
 
     delay(2);
 
@@ -4564,14 +4521,14 @@ void chargercomms()
     msg.buf[4] = lowByte(uint16_t(((settings.ChargeVsetpoint * settings.Scells ) - chargerend) * 10));
     msg.buf[5] = highByte(chargecurrent / ncharger);
     msg.buf[6] = lowByte(chargecurrent / ncharger);
-    Can0.write(msg);
+    bmsCan.write(msg);
   }
   if (settings.chargertype == ChevyVolt)
   {
     msg.id  = 0x30E;
     msg.len = 1;
     msg.buf[0] = 0x02; //only HV charging , 0x03 hv and 12V charging
-    Can0.write(msg);
+    bmsCan.write(msg);
 
     msg.id  = 0x304;
     msg.len = 4;
@@ -4594,7 +4551,7 @@ void chargercomms()
       msg.buf[2] = highByte( 400);
       msg.buf[3] = lowByte( 400);
     }
-    Can0.write(msg);
+    bmsCan.write(msg);
   }
 
   if (settings.chargertype == Coda)
@@ -4625,7 +4582,7 @@ void chargercomms()
       msg.buf[6] = 0x96;
     }
     msg.buf[7] = 0x01; //HV charging
-    Can0.write(msg);
+    bmsCan.write(msg);
   }
 }
 
@@ -4644,8 +4601,5 @@ void isrCP ()
 }  // ******** end of isr CP ********
 
 void low_voltage_isr(void) {
-  EEPROM.update(1000, uint8_t(SOC));
-
-  PMC_LVDSC2 |= PMC_LVDSC2_LVWACK;  // clear if we can
-  PMC_LVDSC1 |= PMC_LVDSC1_LVDACK;
+  EEPROM.update(1000, uint8_t(SOC));   // the interrupt flags are cleared in hal.cpp
 }

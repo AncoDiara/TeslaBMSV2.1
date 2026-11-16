@@ -5,10 +5,9 @@
 //Set to the proper port for your USB connection - SerialUSB on Due (Native) or Serial for Due (Programming) or Teensy
 #define SERIALCONSOLE   Serial
 
-//Define this to be the serial port the Tesla BMS modules are connected to.
-//On the Due you need to use a USART port (Serial1, Serial2, Serial3) and update the call to serialSpecialInit if not Serial1
-//Serial3 for teensy
-#define SERIALBMS  Serial3
+// The serial port of the Tesla BMS modules (SERIALBMS) and all pins are defined per
+// Teensy model in board.h.
+#include "board.h"
 
 #define REG_DEV_STATUS      0
 #define REG_GPAI            1

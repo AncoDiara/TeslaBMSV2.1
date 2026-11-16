@@ -1,4 +1,5 @@
-# Builds TeslaBMS_Victron for Teensy 3.2 with the official Teensy core (same as the Arduino IDE)
+# Builds TeslaBMS_Victron for Teensy 3.2 and Teensy 4.0 with the official Teensy core (same as
+# the Arduino IDE). Same source code; the hardware differences are in board.h / hal.cpp.
 # and publishes a GitHub release "fw-v<FW_YEAR>.<FW_BUILD>_flow-<TESLABMS_FLOW_VERSION>".
 # Firmware (version.h) and dashboard flow have separate version numbers; versions.json in the
 # release tells the Cerbo scripts which firmware and which flow version the release contains.
@@ -8,7 +9,7 @@ name: Build TeslaBMS_Victron firmware
 
 on:
   push:
-    branches: [master]
+    branches: [master, multi-teensy]   # other branches: build only, release only from master
     paths:
       - 'TeslaBMS_Victron/**'
       - '.github/workflows/build-teslabms-victron.yml'
@@ -75,8 +76,14 @@ jobs:
       - name: Compile for Teensy 3.2
         run: |
           arduino-cli compile --fqbn teensy:avr:teensy31 --warnings default \
-            --output-dir build TeslaBMS_Victron
-          ls -la build
+            --output-dir build/t32 TeslaBMS_Victron
+          ls -la build/t32
+
+      - name: Compile for Teensy 4.0
+        run: |
+          arduino-cli compile --fqbn teensy:avr:teensy40 --warnings default \
+            --output-dir build/t40 TeslaBMS_Victron
+          ls -la build/t40
 
       - name: Prepare release files
         id: files
@@ -84,22 +91,33 @@ jobs:
           FW=${{ steps.ver.outputs.fw }}
           FLOW=${{ steps.ver.outputs.flow }}
           mkdir -p release
-          cp build/TeslaBMS_Victron.ino.hex "release/TeslaBMS_Victron-$FW.hex"
+          # Teensy 3.2: same file name as before (older Cerbo scripts keep working)
+          cp build/t32/TeslaBMS_Victron.ino.hex "release/TeslaBMS_Victron-$FW.hex"
+          # Teensy 4.0: own name, sorts after the 3.2 file
+          cp build/t40/TeslaBMS_Victron.ino.hex "release/TeslaBMS_Victron_T40-$FW.hex"
           # Cerbo tools and the Node-RED flow, so the dashboard can update itself
           cp TeslaBMS_Victron/cerbo/teensy_flash.py TeslaBMS_Victron/cerbo/flow_update.py release/
           cp TeslaBMS_Victron/nodered/tesla-bms-dashboard.json release/
-          echo "{\"fw\": \"$FW\", \"flow\": \"$FLOW\", \"commit\": \"${GITHUB_SHA::7}\"}" > release/versions.json
+          echo "{\"fw\": \"$FW\", \"flow\": \"$FLOW\", \"boards\": [\"T32\", \"T40\"], \"commit\": \"${GITHUB_SHA::7}\"}" > release/versions.json
           cd release
           sha256sum "TeslaBMS_Victron-$FW.hex" > "TeslaBMS_Victron-$FW.hex.sha256"
-          cat "TeslaBMS_Victron-$FW.hex.sha256" versions.json
+          sha256sum "TeslaBMS_Victron_T40-$FW.hex" > "TeslaBMS_Victron_T40-$FW.hex.sha256"
+          cat ./*.sha256 versions.json
           ls -la
 
+      - name: Keep the build (also for branches)
+        uses: actions/upload-artifact@v4
+        with:
+          name: teslabms-${{ steps.ver.outputs.tag }}
+          path: release/
+
       - name: Publish release
+        if: github.ref == 'refs/heads/master'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG=${{ steps.ver.outputs.tag }}
-          NOTES="TeslaBMS_Victron firmware ${{ steps.ver.outputs.fw }}, dashboard flow ${{ steps.ver.outputs.flow }}, for Teensy 3.2 (SimpBMS V2), built with arduino-cli and the official Teensy core from commit ${GITHUB_SHA::7}.
+          NOTES="TeslaBMS_Victron firmware ${{ steps.ver.outputs.fw }}, dashboard flow ${{ steps.ver.outputs.flow }}, for Teensy 3.2 (SimpBMS V2) and Teensy 4.0, built with arduino-cli and the official Teensy core from commit ${GITHUB_SHA::7}.
           Flash from the Cerbo GX: python3 /data/teslabms/teensy_flash.py --latest
           Or with the Arduino IDE / Teensy Loader on a PC."
           if gh release view "$TAG" >/dev/null 2>&1; then
