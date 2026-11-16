@@ -49,7 +49,7 @@ Modules are grouped into **strings** (modules in series), and the strings are co
 | 0x351 | CVL (controlled, see below), CCL, DCL (per string × strings online), discharge voltage |
 | 0x355 | SOC, SOH, SOC 0.01 % (fixed: was a factor 10 too low) |
 | 0x356 | Pack voltage (average of the complete strings), current, temperature |
-| 0x35A | Alarms/warnings, incl. **BMS internal** when a string is missing. Per alarm 2 bits: `10` = OK, `01` = active, `00` = not supported (VenusOS can hide it) |
+| 0x35A | Alarms/warnings, incl. **BMS internal** when a string is missing. Per alarm 2 bits: `10` = OK, `01` = active, `00` = not supported (VenusOS can hide it) High cell voltage: warning at `OverVSetpoint` (4.20 V), alarm at `OverVSetpoint` + 50 mV (4.25 V); a full battery at the charge voltage (4.10 V) gives no warning. |
 | 0x35E | `Claude T` (must equal the first 8 characters of 0x370) |
 | 0x35F | Firmware version `v<year>.<build>` from `version.h` (e.g. v26.7), capacity in Ah; sent every second |
 | 0x370 + 0x371 | Battery name: `Claude Tesla BMS` |

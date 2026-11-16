@@ -88,6 +88,8 @@ unsigned long essUnderTimer = 0, essOverTimer = 0; // separate timers for the ES
 #define CVL_FAR_BAND  0.050f  // V per cell: highest cell this far below the target -> CVL straight to the maximum
 #define CVL_START_MARGIN 0.10f // V: when lowering, start no higher than battery voltage + this margin
 #define OV_RELEASE    0.050f  // V per cell: CCL=0 due to overvoltage is released below OverV - this value
+#define OV_ALARM_MARGIN 0.050f // V per cell: high voltage ALARM at OverV + this value (default 4.25 V);
+                               // the high voltage WARNING is at OverV itself (default 4.20 V)
 float cvlActual = 0.0f;       // V, the CVL sent to Victron
 unsigned long cvlTimer = 0;
 bool overVoltLatch = false;   // highest cell >= OverVSetpoint: CCL = 0 (chargers off)
@@ -1213,7 +1215,10 @@ void alarmupdate()
 
   ///// alarms /////
   // byte 0: bits 0-1 general (not supported), 2-3 high voltage, 4-5 low voltage, 6-7 high temperature
-  alarm[0] = almPair(hc > settings.OverVSetpoint, 2)
+  // High voltage: a full battery (ChargeVsetpoint, e.g. 4.10 V) is normal operation and gives
+  // no warning. Warning only at real overvoltage (OverVSetpoint, 4.20 V, where CCL = 0),
+  // alarm at OverVSetpoint + OV_ALARM_MARGIN (4.25 V).
+  alarm[0] = almPair(hc >= settings.OverVSetpoint + OV_ALARM_MARGIN, 2)
            | almPair(lc < settings.UnderVSetpoint, 4)
            | almPair(ht > settings.OverTSetpoint, 6);
   // byte 1: bits 0-1 low temperature; 2-3 high temp charge, 4-5 low temp charge, 6-7 high current: not supported
@@ -1224,8 +1229,8 @@ void alarmupdate()
   alarm[3] = almPair((hc - lc) > settings.CellGap, 0);
 
   ///// warnings (same layout) /////
-  warning[0] = almPair(hc > (settings.OverVSetpoint - settings.WarnOff), 2)
-             | almPair(lc < (settings.UnderVSetpoint + settings.WarnOff), 4)
+  warning[0] = almPair(hc >= settings.OverVSetpoint, 2)
+             | almPair(lc < (settings.UnderVSetpoint + settings.WarnOff), 4)   // WarnOff: low side only
              | almPair(ht > (settings.OverTSetpoint - settings.WarnToff), 6);
   warning[1] = almPair(lt < (settings.UnderTSetpoint + settings.WarnToff), 0);
   warning[2] = almPair(moduleWarning || noData, 6);
@@ -3328,7 +3333,7 @@ case 'r':  //r for reset
         SERIALCONSOLE.println();
         SERIALCONSOLE.println();
         SERIALCONSOLE.println("Alarm and Warning Settings Menu");
-        SERIALCONSOLE.print("1 - Voltage Warning Offset: ");
+        SERIALCONSOLE.print("1 - Low Voltage Warning Offset: ");
         SERIALCONSOLE.print(settings.WarnOff * 1000, 0);
         SERIALCONSOLE.println("mV");
         SERIALCONSOLE.print("2 - Cell Voltage Difference Alarm: ");
