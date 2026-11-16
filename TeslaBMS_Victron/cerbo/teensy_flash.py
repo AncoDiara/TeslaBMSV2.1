@@ -190,7 +190,44 @@ def find_serial_port():
     return p[0] if p else None
 
 
-def find_halfkay():
+# HalfKay reports the Teensy model as HID usage (usage page 0xFF9C), see PJRC / TyTools
+HALFKAY_MODELS = {0x1D: "T30", 0x1E: "T32", 0x21: "T32", 0x1F: "T35", 0x22: "T36",
+                  0x20: "TLC", 0x24: "T40", 0x25: "T41", 0x26: "TMM"}
+
+
+def halfkay_info(sysdir):
+    """(model, serial) of a HalfKay bootloader from sysfs; None where unknown.
+    model from the HID report descriptor (Usage Page 0xFF9C, Usage = model code);
+    serial = the Teensyduino USB serial number (HalfKay reports it /10, in hex)."""
+    model = None
+    try:
+        with open(os.path.join(sysdir, "device", "report_descriptor"), "rb") as f:
+            rd = f.read()
+        i = rd.find(b"\x06\x9c\xff")
+        if i >= 0:
+            j = rd.find(b"\x09", i + 3)
+            if 0 <= j < len(rd) - 1:
+                model = HALFKAY_MODELS.get(rd[j + 1], "unknown 0x%02X" % rd[j + 1])
+    except OSError:
+        pass
+    serial = None
+    p = os.path.realpath(os.path.join(sysdir, "device"))
+    for _ in range(5):
+        try:
+            with open(os.path.join(p, "serial")) as f:
+                v = int(f.read().strip(), 16)
+            serial = str(v * 10 if v < 10000000 else v)
+            break
+        except (OSError, ValueError):
+            p = os.path.dirname(p)
+    return model, serial
+
+
+def find_halfkay(board=None, serial=None):
+    """/dev/hidrawN of the HalfKay bootloader of THIS Teensy (serial) and model (board).
+    A bootloader of another Teensy or another model is never returned; a wrong model
+    raises an error before anything is written."""
+    found = []
     for d in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
         try:
             with open(os.path.join(d, "device", "uevent")) as f:
@@ -198,8 +235,30 @@ def find_halfkay():
         except OSError:
             continue
         if "HID_ID=0003:%08X:%08X" % (HALFKAY_VID, HALFKAY_PID) in ue:
-            return "/dev/" + os.path.basename(d)
-    return None
+            model, ser = halfkay_info(d)
+            found.append(("/dev/" + os.path.basename(d), model, ser))
+    if serial:
+        found = [x for x in found if x[2] in (None, serial)]
+        if any(x[2] == serial for x in found):
+            found = [x for x in found if x[2] == serial]
+    if not found:
+        return None
+    if len(found) > 1:
+        raise RuntimeError("more than one Teensy is in its bootloader (%s): unplug the one that is not "
+                           "to be flashed" % ", ".join(x[0] for x in found))
+    dev, model, ser = found[0]
+    if board and model and model != board:
+        raise RuntimeError("the Teensy in the bootloader (%s, serial %s) is a %s, but the firmware is for the %s "
+                           "- not flashed" % (dev, ser or "?", BOARDS[model]["name"] if model in BOARDS else model, BOARDS[board]["name"]))
+    if board and not model and len(glob.glob("/dev/serial/by-id/*eensy*")) > 0:
+        raise RuntimeError("cannot determine the model of the Teensy in the bootloader (%s) while another "
+                           "Teensy is connected - not flashed; unplug the other Teensy or use the Teensy Loader" % dev)
+    return dev
+
+
+def serial_of_port(port):
+    m = re.search(r"_([0-9A-Za-z]+)-if[0-9]+$", port or "")
+    return m.group(1) if m else None
 
 
 UDEV_RULE = "/etc/udev/rules.d/zz-teslabms-teensy.rules"
@@ -253,7 +312,8 @@ def flash(image, used, board, dry_run=False):
     if dry_run:
         log("--dry-run: Teensy is NOT being flashed")
         return
-    dev = find_halfkay()
+    want = serial_of_port(SERIAL_PORT)
+    dev = find_halfkay(board, want)
     if not dev and not bootloader_access_ok():
         raise RuntimeError("no access to the Teensy bootloader for user '%s' (udev rule %s missing). "
                            "Run install-teensy-ignore.sh once via SSH as root, then try again. "
@@ -268,12 +328,13 @@ def flash(image, used, board, dry_run=False):
         log("Teensy to bootloader via %s" % port)
         soft_reboot(port)
         end = time.time() + 15
+        want = want or serial_of_port(port)
         while not dev and time.time() < end:
             time.sleep(0.25)
-            dev = find_halfkay()
+            dev = find_halfkay(board, want)
         if not dev:
             raise RuntimeError("bootloader did not appear; press the button on the Teensy and run again")
-    log("Bootloader found: %s" % dev)
+    log("Bootloader found: %s (%s)" % (dev, BOARDS[board]["name"]))
     # udev sets the access rights (MODE 0666) a moment AFTER the device appears:
     # opening it immediately can give "permission denied", so retry for a few seconds
     fd = None
