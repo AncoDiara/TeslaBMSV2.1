@@ -52,6 +52,14 @@ def log(msg):
     print(msg, flush=True)
 
 
+def _user():
+    try:
+        import pwd
+        return pwd.getpwuid(os.getuid()).pw_name
+    except Exception:
+        return str(os.getuid())
+
+
 # ---------------------------------------------------------------- versions
 def read_running(timeout=12.0):
     """(version, model) from the JSON output of the Teensy (if JSON is on), e.g. ("v26.26", "T40")."""
@@ -188,6 +196,23 @@ def find_halfkay():
     return None
 
 
+UDEV_RULE = "/etc/udev/rules.d/zz-teslabms-teensy.rules"
+
+
+def bootloader_access_ok():
+    """Can we open the HalfKay bootloader once the Teensy is in it? Root always can; another
+    user (Node-RED runs as 'nodered') only with the udev rule from install-teensy-ignore.sh.
+    Checked BEFORE the Teensy is sent to its bootloader, so a missing rule never leaves the
+    BMS switched off."""
+    if os.getuid() == 0:
+        return True
+    try:
+        with open(UDEV_RULE) as f:
+            return "0478" in f.read()
+    except OSError:
+        return False
+
+
 def soft_reboot(port):
     """Opening the Teensy serial port at 134 baud makes Teensyduino jump to the bootloader."""
     fd = os.open(port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
@@ -223,6 +248,10 @@ def flash(image, used, board, dry_run=False):
         log("--dry-run: Teensy is NOT being flashed")
         return
     dev = find_halfkay()
+    if not dev and not bootloader_access_ok():
+        raise RuntimeError("no access to the Teensy bootloader for user '%s' (udev rule %s missing). "
+                           "Run install-teensy-ignore.sh once via SSH as root, then try again. "
+                           "Nothing was changed: the BMS keeps running." % (_user(), UDEV_RULE))
     if not dev:
         port = find_serial_port()
         if not port:
