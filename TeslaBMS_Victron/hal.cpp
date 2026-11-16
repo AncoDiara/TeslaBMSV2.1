@@ -6,6 +6,21 @@
 
 BmsCan bmsCan;
 
+// ---------------------------------------------------------------- outputs (all models)
+static uint8_t virtualOut[256 - PIN_VIRTUAL];
+
+void halOutWrite(uint8_t pin, uint8_t value)
+{
+  if (pin >= PIN_VIRTUAL) { virtualOut[pin - PIN_VIRTUAL] = value ? 1 : 0; return; }
+  digitalWrite(pin, value);
+}
+
+uint8_t halOutRead(uint8_t pin)
+{
+  if (pin >= PIN_VIRTUAL) return virtualOut[pin - PIN_VIRTUAL];
+  return digitalRead(pin);
+}
+
 #if defined(BOARD_T3)
 // ================================ Teensy 3.2 ================================
 #include <FlexCAN.h>

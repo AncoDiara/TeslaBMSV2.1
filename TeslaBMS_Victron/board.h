@@ -9,14 +9,18 @@
     Teensy 4.0  (IMXRT1062)  -> own board with CAN + Tesla serial bus
     Teensy 4.1  (IMXRT1062)  -> same as 4.0 (not built by GitHub, compiles)
 
-  PIN_NONE (255) = not present on this board. digitalWrite/digitalRead/pinMode/
-  analogWriteFrequency/attachInterrupt ignore it (digitalRead returns LOW).
+  PIN_NONE (255) = input not present on this board. digitalRead returns LOW,
+  pinMode/attachInterrupt ignore it.
+  PIN_VIRTUAL+n = output not present on this board: nothing is switched, but the
+  firmware can read back the last written value (halOutRead), so the contactor /
+  precharge / charger logic behaves as with real outputs (no repeated actions).
 
   Own board with a different wiring? Change only the block of your Teensy here.
 */
 #include <Arduino.h>
 
-#define PIN_NONE 255
+#define PIN_NONE    255
+#define PIN_VIRTUAL 200   // 200..255: virtual outputs (see above); real Teensy pins are < 64
 
 #if defined(__IMXRT1062__)
 // ============================== Teensy 4.0 / 4.1 ==============================
@@ -44,20 +48,20 @@
   const int ACUR2 = A0; // pin 14
   const int ACUR1 = A1; // pin 15
 
-  // Inputs / outputs (relays, contactors, PWM). Not present on this board: PIN_NONE.
-  // Fill in the pin numbers if your board has them.
+  // Inputs / outputs (relays, contactors, PWM). Not present on this board: inputs PIN_NONE,
+  // outputs virtual (PIN_VIRTUAL + n). Fill in the real pin numbers if your board has them.
   const int IN1  = PIN_NONE; // input 1 - high active (key)
   const int IN2  = PIN_NONE; // input 2 - high active
   const int IN3  = PIN_NONE; // input 3 - high active (AC present)
   const int IN4  = PIN_NONE; // input 4 - high active (control pilot interrupt)
-  const int OUT1 = PIN_NONE; // output 1 - high active (discharge)
-  const int OUT2 = PIN_NONE; // output 2 - high active (contactor / breaker)
-  const int OUT3 = PIN_NONE; // output 3 - high active (charger)
-  const int OUT4 = PIN_NONE; // output 4 - high active (precharge)
-  const int OUT5 = PIN_NONE; // output 5 - low active PWM
-  const int OUT6 = PIN_NONE; // output 6 - low active PWM
-  const int OUT7 = PIN_NONE; // output 7 - low active PWM
-  const int OUT8 = PIN_NONE; // output 8 - low active PWM
+  const int OUT1 = PIN_VIRTUAL + 0; // output 1 - high active (discharge)
+  const int OUT2 = PIN_VIRTUAL + 1; // output 2 - high active (contactor / breaker)
+  const int OUT3 = PIN_VIRTUAL + 2; // output 3 - high active (charger)
+  const int OUT4 = PIN_VIRTUAL + 3; // output 4 - high active (precharge)
+  const int OUT5 = PIN_VIRTUAL + 4; // output 5 - low active PWM
+  const int OUT6 = PIN_VIRTUAL + 5; // output 6 - low active PWM
+  const int OUT7 = PIN_VIRTUAL + 6; // output 7 - low active PWM
+  const int OUT8 = PIN_VIRTUAL + 7; // output 8 - low active PWM
   const int led  = 13;
 
 #elif defined(__MK20DX256__)

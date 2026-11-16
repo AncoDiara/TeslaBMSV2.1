@@ -629,18 +629,18 @@ void loop()
         {
           if (true)   // ESS: always, also at over/undervoltage - CCL/DCL protect the battery, it must stay chargeable and dischargeable
           {
-            if (digitalRead(OUT2) == LOW && digitalRead(OUT4) == LOW)
+            if (halOutRead(OUT2) == LOW && halOutRead(OUT4) == LOW)
             {
               mainconttimer = millis();
-              digitalWrite(OUT4, HIGH);//Precharge start
+              halOutWrite(OUT4, HIGH);//Precharge start
               Serial.println();
               Serial.println("Precharge!!!");
               Serial.println(mainconttimer);
               Serial.println();
             }
-            if (mainconttimer + settings.Pretime < millis() && digitalRead(OUT2) == LOW && abs(currentact) < settings.Precurrent)
+            if (mainconttimer + settings.Pretime < millis() && halOutRead(OUT2) == LOW && abs(currentact) < settings.Precurrent)
             {
-              digitalWrite(OUT2, HIGH);//turn on contactor
+              halOutWrite(OUT2, HIGH);//turn on contactor
               contctrl = contctrl | 2; //turn on contactor
               Serial.println();
               Serial.println("Main On!!!");
@@ -649,12 +649,12 @@ void loop()
             }
             if (mainconttimer + settings.Pretime + 1000 < millis() )
             {
-              digitalWrite(OUT4, LOW);//ensure precharge is low
+              halOutWrite(OUT4, LOW);//ensure precharge is low
             }
           }
           else
           {
-            digitalWrite(OUT4, LOW);//ensure precharge is low
+            halOutWrite(OUT4, LOW);//ensure precharge is low
             mainconttimer = 0;
           }
         }
@@ -687,7 +687,7 @@ void loop()
         {
           if (bms.getHighCellVolt() > settings.StoreVsetpoint || chargecurrent == 0)
           {
-            digitalWrite(OUT3, LOW);//turn off charger
+            halOutWrite(OUT3, LOW);//turn off charger
             // contctrl = contctrl & 253;
             // Pretimer = millis();
             Charged = 1;
@@ -700,7 +700,7 @@ void loop()
               if (bms.getHighCellVolt() < (settings.StoreVsetpoint - settings.ChargeHys))
               {
                 Charged = 0;
-                digitalWrite(OUT3, HIGH);//turn on charger
+                halOutWrite(OUT3, HIGH);//turn on charger
                 /*
                   if (Pretimer + settings.Pretime < millis())
                   {
@@ -712,7 +712,7 @@ void loop()
             }
             else
             {
-              digitalWrite(OUT3, HIGH);//turn on charger
+              halOutWrite(OUT3, HIGH);//turn on charger
               /*
                 if (Pretimer + settings.Pretime < millis())
                 {
@@ -729,11 +729,11 @@ void loop()
           {
             if ((millis() - overtriptimer) > settings.triptime)
             {
-              if (digitalRead(OUT3) == 1)
+              if (halOutRead(OUT3) == 1)
               {
                 Serial.println();
                 Serial.println("Over Voltage Trip");
-                digitalWrite(OUT3, LOW);//turn off charger
+                halOutWrite(OUT3, LOW);//turn off charger
                 // contctrl = contctrl & 253;
                 //Pretimer = millis();
                 Charged = 1;
@@ -750,12 +750,12 @@ void loop()
 
               if (bms.getHighCellVolt() < (settings.ChargeVsetpoint - settings.ChargeHys))
               {
-                if (digitalRead(OUT3) == 0)
+                if (halOutRead(OUT3) == 0)
                 {
                   Serial.println();
                   Serial.println("Reset Over Voltage Trip Not Charged");
                   Charged = 0;
-                  digitalWrite(OUT3, HIGH);//turn on charger
+                  halOutWrite(OUT3, HIGH);//turn on charger
                 }
                 /*
                   if (Pretimer + settings.Pretime < millis())
@@ -769,11 +769,11 @@ void loop()
             }
             else
             {
-              if (digitalRead(OUT3) == 0)
+              if (halOutRead(OUT3) == 0)
               {
                 Serial.println();
                 Serial.println("Reset Over Voltage Trip Not Charged");
-                digitalWrite(OUT3, HIGH);//turn on charger
+                halOutWrite(OUT3, HIGH);//turn on charger
               }
               /*
                 if (Pretimer + settings.Pretime < millis())
@@ -788,14 +788,14 @@ void loop()
 
         if (bms.getLowCellVolt() < settings.UnderVSetpoint || bms.getLowCellVolt() < settings.DischVsetpoint)
         {
-          if (digitalRead(OUT1) == 1)
+          if (halOutRead(OUT1) == 1)
           {
 
             if ((millis() - undertriptimer) > settings.triptime)
             {
               Serial.println();
               Serial.println("Under Voltage Trip");
-              digitalWrite(OUT1, LOW);//turn off discharge
+              halOutWrite(OUT1, LOW);//turn off discharge
               // contctrl = contctrl & 254;
               // Pretimer1 = millis();
             }
@@ -807,11 +807,11 @@ void loop()
 
           if (bms.getLowCellVolt() > settings.DischVsetpoint + settings.DischHys)
           {
-            if (digitalRead(OUT1) == 0)
+            if (halOutRead(OUT1) == 0)
             {
               Serial.println();
               Serial.println("Reset Under Voltage Trip");
-              digitalWrite(OUT1, HIGH);//turn on discharge
+              halOutWrite(OUT1, HIGH);//turn on discharge
             }
             /*
               if (Pretimer1 + settings.Pretime < millis())
@@ -829,21 +829,21 @@ void loop()
             // too high -> CCL = 0, too low -> DCL = 0, see currentlimit(). Only temperature.
             if (bms.getHighTemperature() > settings.OverTSetpoint)
             {
-              digitalWrite(OUT2, HIGH);//trip breaker
+              halOutWrite(OUT2, HIGH);//trip breaker
               bmsstatus = Error;
             }
             else
             {
-              digitalWrite(OUT2, LOW);//trip breaker
+              halOutWrite(OUT2, LOW);//trip breaker
             }
           }
           else
           {
             if (bms.getHighTemperature() > settings.OverTSetpoint)  // not for cell voltage, see above
             {
-              digitalWrite(OUT2, LOW);//turn off contactor
+              halOutWrite(OUT2, LOW);//turn off contactor
               contctrl = contctrl & 253; //turn off contactor
-              digitalWrite(OUT4, LOW);//ensure precharge is low
+              halOutWrite(OUT4, LOW);//ensure precharge is low
               bmsstatus = Error;
             }
           }
@@ -851,12 +851,12 @@ void loop()
       }
       else
       {
-        //digitalWrite(OUT2, HIGH);//trip breaker
+        //halOutWrite(OUT2, HIGH);//trip breaker
         Discharge = 0;
-        digitalWrite(OUT4, LOW);
-        digitalWrite(OUT3, LOW);//turn off charger
-        digitalWrite(OUT2, LOW);
-        digitalWrite(OUT1, LOW);//turn off discharge
+        halOutWrite(OUT4, LOW);
+        halOutWrite(OUT3, LOW);//turn off charger
+        halOutWrite(OUT2, LOW);
+        halOutWrite(OUT1, LOW);//turn off discharge
         contctrl = 0; //turn off out 5 and 6
 
         if (SOCset == 1)
@@ -864,12 +864,12 @@ void loop()
           if (settings.tripcont == 0)
           {
 
-            digitalWrite(OUT2, HIGH);//trip breaker
+            halOutWrite(OUT2, HIGH);//trip breaker
           }
           else
           {
-            digitalWrite(OUT2, LOW);//turn off contactor
-            digitalWrite(OUT4, LOW);//ensure precharge is low
+            halOutWrite(OUT2, LOW);//turn off contactor
+            halOutWrite(OUT4, LOW);//ensure precharge is low
           }
 
           if (bms.getHighTemperature() < settings.OverTSetpoint && bms.getStringsOnline() > 0) // NEW: at least 1 complete string; cell voltage is no Error in ESS mode
@@ -886,20 +886,20 @@ void loop()
       {
         case (Boot):
           Discharge = 0;
-          digitalWrite(OUT4, LOW);
-          digitalWrite(OUT3, LOW);//turn off charger
-          digitalWrite(OUT2, LOW);
-          digitalWrite(OUT1, LOW);//turn off discharge
+          halOutWrite(OUT4, LOW);
+          halOutWrite(OUT3, LOW);//turn off charger
+          halOutWrite(OUT2, LOW);
+          halOutWrite(OUT1, LOW);//turn off discharge
           contctrl = 0;
           bmsstatus = Ready;
           break;
 
         case (Ready):
           Discharge = 0;
-          digitalWrite(OUT4, LOW);
-          digitalWrite(OUT3, LOW);//turn off charger
-          digitalWrite(OUT2, LOW);
-          digitalWrite(OUT1, LOW);//turn off discharge
+          halOutWrite(OUT4, LOW);
+          halOutWrite(OUT3, LOW);//turn off charger
+          halOutWrite(OUT2, LOW);
+          halOutWrite(OUT1, LOW);//turn off discharge
           contctrl = 0; //turn off out 5 and 6
           accurlim = 0;
           if (bms.getHighCellVolt() > settings.balanceVoltage) // NEW: the difference per cell is assessed per string in balanceCells()
@@ -955,9 +955,9 @@ void loop()
           if (settings.ChargerDirect > 0)
           {
             Discharge = 0;
-            digitalWrite(OUT4, LOW);
-            digitalWrite(OUT2, LOW);
-            digitalWrite(OUT1, LOW);//turn off discharge
+            halOutWrite(OUT4, LOW);
+            halOutWrite(OUT2, LOW);
+            halOutWrite(OUT1, LOW);//turn off discharge
             contctrl = 0; //turn off out 5 and 6
           }
           Discharge = 0;
@@ -969,7 +969,7 @@ void loop()
           {
             chargecurrentlimit = false;
           }
-          digitalWrite(OUT3, HIGH);//enable charger
+          halOutWrite(OUT3, HIGH);//enable charger
           if (bms.getHighCellVolt() > settings.balanceVoltage)
           {
             //bms.balanceCells();
@@ -989,7 +989,7 @@ void loop()
             {
               SOCcharged(1);
             }
-            digitalWrite(OUT3, LOW);//turn off charger
+            halOutWrite(OUT3, LOW);//turn off charger
             bmsstatus = Ready;
           }
           if (digitalRead(IN3) == LOW)//detect AC not present for charging
@@ -1000,10 +1000,10 @@ void loop()
 
         case (Error):
           Discharge = 0;
-          digitalWrite(OUT4, LOW);
-          digitalWrite(OUT3, LOW);//turn off charger
-          digitalWrite(OUT2, LOW);
-          digitalWrite(OUT1, LOW);//turn off discharge
+          halOutWrite(OUT4, LOW);
+          halOutWrite(OUT3, LOW);//turn off charger
+          halOutWrite(OUT2, LOW);
+          halOutWrite(OUT1, LOW);//turn off discharge
           contctrl = 0; //turn off out 5 and 6
           /*
                     if (digitalRead(IN3) == HIGH) //detect AC present for charging
@@ -1400,10 +1400,10 @@ void printbmsstat()
   SERIALCONSOLE.print(cellspresent);
   SERIALCONSOLE.println();
   SERIALCONSOLE.print("Out:");
-  SERIALCONSOLE.print(digitalRead(OUT1));
-  SERIALCONSOLE.print(digitalRead(OUT2));
-  SERIALCONSOLE.print(digitalRead(OUT3));
-  SERIALCONSOLE.print(digitalRead(OUT4));
+  SERIALCONSOLE.print(halOutRead(OUT1));
+  SERIALCONSOLE.print(halOutRead(OUT2));
+  SERIALCONSOLE.print(halOutRead(OUT3));
+  SERIALCONSOLE.print(halOutRead(OUT4));
   SERIALCONSOLE.print(" Cont:");
   if ((contstat & 1) == 1)
   {
@@ -1770,15 +1770,15 @@ void Prechargecon()
 {
   if (digitalRead(IN1) == HIGH || digitalRead(IN3) == HIGH) //detect Key ON or AC present
   {
-    digitalWrite(OUT4, HIGH);//Negative Contactor Close
+    halOutWrite(OUT4, HIGH);//Negative Contactor Close
     contctrl = 2;
     if (Pretimer +  settings.Pretime > millis() || currentact > settings.Precurrent)
     {
-      digitalWrite(OUT2, HIGH);//precharge
+      halOutWrite(OUT2, HIGH);//precharge
     }
     else //close main contactor
     {
-      digitalWrite(OUT1, HIGH);//Positive Contactor Close
+      halOutWrite(OUT1, HIGH);//Positive Contactor Close
       contctrl = 3;
       if (settings.ChargerDirect == 1)
       {
@@ -1795,14 +1795,14 @@ void Prechargecon()
           bmsstatus = Drive;
         }
       }
-      digitalWrite(OUT2, LOW);
+      halOutWrite(OUT2, LOW);
     }
   }
   else
   {
-    digitalWrite(OUT1, LOW);
-    digitalWrite(OUT2, LOW);
-    digitalWrite(OUT4, LOW);
+    halOutWrite(OUT1, LOW);
+    halOutWrite(OUT2, LOW);
+    halOutWrite(OUT4, LOW);
     bmsstatus = Ready;
     contctrl = 0;
   }
@@ -2164,7 +2164,7 @@ void VEcan() //communication with Victron system over CAN
   msg.buf[0] = lowByte(uint16_t(settings.Pstrings * settings.CAP));
   msg.buf[1] = highByte(uint16_t(settings.Pstrings * settings.CAP));
   msg.buf[2] = contstat; //contactor state
-  msg.buf[3] = (digitalRead(OUT1) | (digitalRead(OUT2) << 1) | (digitalRead(OUT3) << 2) | (digitalRead(OUT4) << 3));
+  msg.buf[3] = (halOutRead(OUT1) | (halOutRead(OUT2) << 1) | (halOutRead(OUT3) << 2) | (halOutRead(OUT4) << 3));
   msg.buf[4] = bmsstatus;
   msg.buf[5] = 0x00;
   msg.buf[6] = 0x00;
@@ -2261,10 +2261,10 @@ void menu()
         if (outputcheck == 0)
         {
           contctrl = 0;
-          digitalWrite(OUT1, LOW);
-          digitalWrite(OUT2, LOW);
-          digitalWrite(OUT3, LOW);
-          digitalWrite(OUT4, LOW);
+          halOutWrite(OUT1, LOW);
+          halOutWrite(OUT2, LOW);
+          halOutWrite(OUT3, LOW);
+          halOutWrite(OUT4, LOW);
         }
         incomingByte = 'd';
         break;
@@ -4241,10 +4241,10 @@ void outputdebug()
 {
   if (outputstate < 5)
   {
-    digitalWrite(OUT1, HIGH);
-    digitalWrite(OUT2, HIGH);
-    digitalWrite(OUT3, HIGH);
-    digitalWrite(OUT4, HIGH);
+    halOutWrite(OUT1, HIGH);
+    halOutWrite(OUT2, HIGH);
+    halOutWrite(OUT3, HIGH);
+    halOutWrite(OUT4, HIGH);
     analogWrite(OUT5, 255);
     analogWrite(OUT6, 255);
     analogWrite(OUT7, 255);
@@ -4253,10 +4253,10 @@ void outputdebug()
   }
   else
   {
-    digitalWrite(OUT1, LOW);
-    digitalWrite(OUT2, LOW);
-    digitalWrite(OUT3, LOW);
-    digitalWrite(OUT4, LOW);
+    halOutWrite(OUT1, LOW);
+    halOutWrite(OUT2, LOW);
+    halOutWrite(OUT3, LOW);
+    halOutWrite(OUT4, LOW);
     analogWrite(OUT5, 0);
     analogWrite(OUT6, 0);
     analogWrite(OUT7, 0);

@@ -31,6 +31,11 @@ public:
 
 extern BmsCan bmsCan;
 
+// Outputs OUT1..OUT8: write / read back. Real pins: digitalWrite / digitalRead.
+// Virtual outputs (PIN_VIRTUAL + n, not present on the board): only the value is remembered.
+void halOutWrite(uint8_t pin, uint8_t value);
+uint8_t halOutRead(uint8_t pin);
+
 void halPrintResetReason(Stream &out);
 void halWatchdogStart();               // about 5.5 s
 void halWatchdogKick();
