@@ -40,6 +40,8 @@
       * every 30 s an automatic search for the missing modules
   - 0x355 SOC high resolution (0.01%) fixed (was a factor 10 too low).
   - ESS mode: over/undervoltage delay timers fixed.
+  - ESS mode: overvoltage is no Error: CCL = 0 from OverVSetpoint (4.20 V), DCL stays
+    normal so discharging is always possible (also no contactor/breaker trip for it).
   ==========================================================================
 */
 
@@ -79,7 +81,7 @@ bool moduleAlarm = false;            // ... for longer than settings.ModuleAlarm
 unsigned long moduleMissingSince = 0;
 unsigned long rescanTimer = 0;
 #define RESCAN_INTERVAL 30000        // ms between searches for missing modules
-unsigned long essUnderTimer = 0, essOverTimer = 0; // separate timers for the ESS check (500 ms block)
+unsigned long essUnderTimer = 0; // timer for the ESS undervoltage check (500 ms block)
 
 //////// NEW: Victron-style CVL control ////////
 #define CVL_DOWN_RATE 0.10f   // V per second lowering as long as the highest cell is above the charge voltage
@@ -654,7 +656,7 @@ void loop()
         contctrl = contctrl | 4; //turn on negative contactor
         if (settings.tripcont != 0)
         {
-          if (bms.getLowCellVolt() > settings.UnderVSetpoint && bms.getHighCellVolt() < settings.OverVSetpoint)
+          if (bms.getLowCellVolt() > settings.UnderVSetpoint)   // also at overvoltage: discharging must stay possible (CCL = 0)
           {
             if (digitalRead(OUT2) == LOW && digitalRead(OUT4) == LOW)
             {
@@ -852,7 +854,9 @@ void loop()
         {
           if (settings.tripcont == 0)
           {
-            if (bms.getLowCellVolt() < settings.UnderVSetpoint || bms.getHighCellVolt() > settings.OverVSetpoint || bms.getHighTemperature() > settings.OverTSetpoint)
+            // Overvoltage is NOT an Error in ESS mode: CCL = 0 (overVoltLatch) stops charging,
+            // discharging must stay possible to bring the voltage down.
+            if (bms.getLowCellVolt() < settings.UnderVSetpoint || bms.getHighTemperature() > settings.OverTSetpoint)
             {
               digitalWrite(OUT2, HIGH);//trip breaker
               bmsstatus = Error;
@@ -864,7 +868,7 @@ void loop()
           }
           else
           {
-            if (bms.getLowCellVolt() < settings.UnderVSetpoint || bms.getHighCellVolt() > settings.OverVSetpoint || bms.getHighTemperature() > settings.OverTSetpoint)
+            if (bms.getLowCellVolt() < settings.UnderVSetpoint || bms.getHighTemperature() > settings.OverTSetpoint)  // not at overvoltage, see above
             {
               digitalWrite(OUT2, LOW);//turn off contactor
               contctrl = contctrl & 253; //turn off contactor
@@ -897,7 +901,7 @@ void loop()
             digitalWrite(OUT4, LOW);//ensure precharge is low
           }
 
-          if (bms.getLowCellVolt() > settings.UnderVSetpoint && bms.getHighCellVolt() < settings.OverVSetpoint && bms.getHighTemperature() < settings.OverTSetpoint && bms.getStringsOnline() > 0) // NEW: at least 1 complete string
+          if (bms.getLowCellVolt() > settings.UnderVSetpoint && bms.getHighTemperature() < settings.OverTSetpoint && bms.getStringsOnline() > 0) // NEW: at least 1 complete string; overvoltage is no Error in ESS mode
           {
             bmsstatus = Ready;
           }
@@ -1070,17 +1074,8 @@ void loop()
       {
         essUnderTimer = millis();
       }
-      if (bms.getLowCellVolt() > settings.OverVSetpoint || bms.getHighCellVolt() > settings.OverVSetpoint)
-      {
-        if ((millis() - essOverTimer) > settings.triptime) //overvoltage longer than triptime
-        {
-          bmsstatus = Error;
-        }
-      }
-      else
-      {
-        essOverTimer = millis();
-      }
+      // Overvoltage: no Error in ESS mode (that would also set DCL = 0). Charging is stopped
+      // with CCL = 0 (overVoltLatch in currentlimit()); discharging stays allowed.
     }
     else //In 'vehicle' mode
     {

@@ -146,6 +146,8 @@ when a value is illogical. The charge voltage used by the CVL control is always 
 ## Other fixes compared to TeslaBMSV2
 
 - ESS mode: delay timers for over/undervoltage no longer shared with the charge/discharge logic and no longer inverted
+- ESS mode: overvoltage no longer gives status Error (which also set DCL = 0 and opened the contactor). From
+  `OverVSetpoint` (4.20 V) CCL = 0, so charging stops; DCL stays normal, so discharging is always possible
 - Cell count per module is updated regardless of debug output
 - "Series Cells Fault" only worked with debug output on; replaced by the string monitoring
 
