@@ -121,7 +121,9 @@ update). See [nodered/README.md](nodered/README.md).
 
 The dashboard can also **update the Teensy firmware and itself** (buttons in the block *Firmware &
 updates*). Every commit is compiled by GitHub Actions with the official Teensy core and published
-as a release `v<year>.<build>` with the `.hex`, the Node-RED flow and the Cerbo scripts.
+as a release `fw-v<year>.<build>_flow-v<x>.<y>` with the `.hex`, the Node-RED flow, the Cerbo
+scripts and `versions.json`. Firmware and dashboard have separate version numbers, so the dashboard
+only offers a firmware update when the firmware itself has changed.
 
 ![Dashboard preview (simulated data)](nodered/dashboard-preview.png)
 
@@ -153,9 +155,14 @@ rollover-safe for `millis()` (after ~49.7 days of continuous operation).
 ## Version number
 
 `version.h` contains `FW_YEAR` and `FW_BUILD`. VenusOS shows them as e.g. **v26.8** (year.build).
-`FW_BUILD` is raised by 1 with every commit and wraps around after 255. So every version on
-GitHub has its own number, whoever compiles it. If you change something yourself, raise
-`FW_BUILD` as well. Compile date and time are shown in the serial monitor.
+`FW_BUILD` is raised by 1 with every commit that changes the firmware and wraps around after 255.
+So every firmware version on GitHub has its own number, whoever compiles it. If you change the
+firmware yourself, raise `FW_BUILD` as well. Compile date and time are shown in the serial monitor.
+
+The Node-RED dashboard has its own version: `TESLABMS_FLOW_VERSION` (tab environment variable in
+`nodered/tesla-bms-dashboard.json`), raised with every change to the flow. The two numbers do not
+have to be equal. The GitHub workflow refuses a push that changes the firmware or the flow without
+raising the matching version.
 
 ## Licence
 

@@ -80,7 +80,11 @@ def latest_release():
     sha = [a for a in rel.get("assets", []) if a["name"].endswith(".hex.sha256")]
     if not hexa:
         raise RuntimeError("latest release %s contains no .hex" % rel.get("tag_name"))
-    return rel["tag_name"], hexa[0]["browser_download_url"], (sha[0]["browser_download_url"] if sha else None)
+    # firmware version from the file name (TeslaBMS_Victron-v26.21.hex); the release tag
+    # also contains the dashboard version, which is independent of the firmware version
+    m = re.search(r"-(v[0-9]+\.[0-9]+)\.hex$", hexa[0]["name"])
+    ver = m.group(1) if m else rel["tag_name"]
+    return ver, hexa[0]["browser_download_url"], (sha[0]["browser_download_url"] if sha else None)
 
 
 def download(url):
@@ -248,7 +252,7 @@ def main():
         label = os.path.basename(a.file)
     else:
         tag, url, sha_url = latest_release()
-        log("Latest release: %s" % tag)
+        log("Latest firmware: %s" % tag)
         data = download(url)
         if sha_url:
             want = download(sha_url).decode().split()[0].lower()

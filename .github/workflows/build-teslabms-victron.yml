@@ -1,5 +1,7 @@
 # Builds TeslaBMS_Victron for Teensy 3.2 with the official Teensy core (same as the Arduino IDE)
-# and publishes the .hex as a GitHub release "v<FW_YEAR>.<FW_BUILD>" (from version.h).
+# and publishes a GitHub release "fw-v<FW_YEAR>.<FW_BUILD>_flow-<TESLABMS_FLOW_VERSION>".
+# Firmware (version.h) and dashboard flow have separate version numbers; versions.json in the
+# release tells the Cerbo scripts which firmware and which flow version the release contains.
 # The Cerbo GX can then fetch and flash it with TeslaBMS_Victron/cerbo/teensy_flash.py;
 # the release also contains the Node-RED flow and the Cerbo scripts (self-update of the dashboard).
 name: Build TeslaBMS_Victron firmware
@@ -24,6 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Install arduino-cli
         uses: arduino/setup-arduino-cli@v2
@@ -36,14 +40,37 @@ jobs:
           arduino-cli core install teensy:avr
           arduino-cli core list
 
-      - name: Read version from version.h
+      - name: Read versions (firmware from version.h, flow from the dashboard JSON)
         id: ver
         run: |
-          Y=$(grep -E '^#define FW_YEAR' TeslaBMS_Victron/version.h | awk '{print $3}')
-          B=$(grep -E '^#define FW_BUILD' TeslaBMS_Victron/version.h | awk '{print $3}')
-          B=$((B % 256))
-          echo "tag=v$Y.$B" >> "$GITHUB_OUTPUT"
-          echo "Version: v$Y.$B"
+          fwver() { grep -E '^#define FW_YEAR' "$1" | awk '{print $3}' | tr -d '\n'; echo -n .; echo $(( $(grep -E '^#define FW_BUILD' "$1" | awk '{print $3}') % 256 )); }
+          flowver() { python3 -c "import json,sys; t=[n for n in json.load(open(sys.argv[1])) if n.get('type')=='tab' and n.get('label')=='Tesla BMS'][0]; print([e['value'] for e in t.get('env',[]) if e['name']=='TESLABMS_FLOW_VERSION'][0])" "$1"; }
+          FW=v$(fwver TeslaBMS_Victron/version.h)
+          FLOW=$(flowver TeslaBMS_Victron/nodered/tesla-bms-dashboard.json)
+          echo "$FLOW" | grep -Eq '^v[0-9]+\.[0-9]+$' || { echo "invalid flow version '$FLOW'"; exit 1; }
+          echo "fw=$FW" >> "$GITHUB_OUTPUT"
+          echo "flow=$FLOW" >> "$GITHUB_OUTPUT"
+          echo "tag=fw-${FW}_flow-${FLOW}" >> "$GITHUB_OUTPUT"
+          echo "Firmware $FW, flow $FLOW"
+
+          # guard: a change to the firmware or the flow must raise its version number
+          BEFORE="${{ github.event.before }}"
+          if [ "${{ github.event_name }}" = push ] && [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ]; then
+            git cat-file -e "$BEFORE^{commit}" 2>/dev/null || git fetch --depth=1 origin "$BEFORE"
+            CH=$(git diff --name-only "$BEFORE" HEAD -- TeslaBMS_Victron)
+            FWCH=$(echo "$CH" | grep -vE '^TeslaBMS_Victron/(nodered|cerbo)/|\.md$|^TeslaBMS_Victron/version\.h$' | grep . || true)
+            FLCH=$(echo "$CH" | grep -E '^TeslaBMS_Victron/nodered/tesla-bms-dashboard\.json$' || true)
+            git show "$BEFORE:TeslaBMS_Victron/version.h" > /tmp/v_old.h
+            OLDFW=v$(fwver /tmp/v_old.h)
+            git show "$BEFORE:TeslaBMS_Victron/nodered/tesla-bms-dashboard.json" > /tmp/f_old.json
+            OLDFLOW=$(flowver /tmp/f_old.json 2>/dev/null || echo none)
+            if [ -n "$FWCH" ] && [ "$FW" = "$OLDFW" ]; then
+              echo "::error::firmware changed ($FWCH) but FW_BUILD was not raised (still $FW)"; exit 1
+            fi
+            if [ -n "$FLCH" ] && [ "$FLOW" = "$OLDFLOW" ]; then
+              echo "::error::flow changed but TESLABMS_FLOW_VERSION was not raised (still $FLOW)"; exit 1
+            fi
+          fi
 
       - name: Compile for Teensy 3.2
         run: |
@@ -54,17 +81,17 @@ jobs:
       - name: Prepare release files
         id: files
         run: |
-          TAG=${{ steps.ver.outputs.tag }}
+          FW=${{ steps.ver.outputs.fw }}
+          FLOW=${{ steps.ver.outputs.flow }}
           mkdir -p release
-          cp build/TeslaBMS_Victron.ino.hex "release/TeslaBMS_Victron-$TAG.hex"
+          cp build/TeslaBMS_Victron.ino.hex "release/TeslaBMS_Victron-$FW.hex"
           # Cerbo tools and the Node-RED flow, so the dashboard can update itself
           cp TeslaBMS_Victron/cerbo/teensy_flash.py TeslaBMS_Victron/cerbo/flow_update.py release/
           cp TeslaBMS_Victron/nodered/tesla-bms-dashboard.json release/
-          # check: flow version must equal the firmware version
-          grep -q "\"value\": \"$TAG\"" release/tesla-bms-dashboard.json || { echo "flow version != $TAG"; exit 1; }
+          echo "{\"fw\": \"$FW\", \"flow\": \"$FLOW\", \"commit\": \"${GITHUB_SHA::7}\"}" > release/versions.json
           cd release
-          sha256sum "TeslaBMS_Victron-$TAG.hex" > "TeslaBMS_Victron-$TAG.hex.sha256"
-          cat "TeslaBMS_Victron-$TAG.hex.sha256"
+          sha256sum "TeslaBMS_Victron-$FW.hex" > "TeslaBMS_Victron-$FW.hex.sha256"
+          cat "TeslaBMS_Victron-$FW.hex.sha256" versions.json
           ls -la
 
       - name: Publish release
@@ -72,11 +99,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG=${{ steps.ver.outputs.tag }}
-          NOTES="TeslaBMS_Victron $TAG for Teensy 3.2 (SimpBMS V2), built with arduino-cli and the official Teensy core from commit ${GITHUB_SHA::7}.
+          NOTES="TeslaBMS_Victron firmware ${{ steps.ver.outputs.fw }}, dashboard flow ${{ steps.ver.outputs.flow }}, for Teensy 3.2 (SimpBMS V2), built with arduino-cli and the official Teensy core from commit ${GITHUB_SHA::7}.
           Flash from the Cerbo GX: python3 /data/teslabms/teensy_flash.py --latest
           Or with the Arduino IDE / Teensy Loader on a PC."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" release/* --clobber
           else
-            gh release create "$TAG" release/* --title "TeslaBMS_Victron $TAG" --notes "$NOTES" --target "$GITHUB_SHA" --latest
+            gh release create "$TAG" release/* --title "TeslaBMS_Victron firmware ${{ steps.ver.outputs.fw }} / dashboard ${{ steps.ver.outputs.flow }}" --notes "$NOTES" --target "$GITHUB_SHA" --latest
           fi

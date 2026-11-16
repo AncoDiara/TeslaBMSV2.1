@@ -58,6 +58,14 @@ def latest_release():
     raise RuntimeError("latest release %s contains no %s" % (rel.get("tag_name"), ASSET))
 
 
+def latest_flow():
+    """(flow version, flow nodes) of the latest release. The version is read from the flow
+    itself (TESLABMS_FLOW_VERSION), because it is independent of the firmware version."""
+    tag, url = latest_release()
+    new = json.loads(download(url).decode())
+    return (flow_version(new) or tag), new
+
+
 def download(url):
     req = urllib.request.Request(url, headers=UA)
     with urllib.request.urlopen(req, timeout=60) as r:
@@ -208,7 +216,7 @@ def main():
     if a.check:
         out = {"installed": installed, "latest": None, "error": None, "flows": flows_path}
         try:
-            out["latest"] = latest_release()[0]
+            out["latest"] = latest_flow()[0]
         except Exception as e:
             out["error"] = str(e)
         out["update"] = bool(out["latest"] and out["latest"] != installed)
@@ -220,9 +228,7 @@ def main():
             new = json.load(f)
         label = os.path.basename(a.file)
     else:
-        tag, url = latest_release()
-        new = json.loads(download(url).decode())
-        label = tag
+        label, new = latest_flow()
     if not isinstance(new, list) or not any(n.get("type") == "tab" and n.get("label") == TAB_LABEL for n in new):
         raise RuntimeError("this is not a Tesla BMS flow")
 
