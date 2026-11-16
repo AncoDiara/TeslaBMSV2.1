@@ -265,12 +265,21 @@ def flash(image, used, board, dry_run=False):
         if not dev:
             raise RuntimeError("bootloader did not appear; press the button on the Teensy and run again")
     log("Bootloader found: %s" % dev)
-    try:
-        fd = os.open(dev, os.O_RDWR)
-    except PermissionError:
+    # udev sets the access rights (MODE 0666) a moment AFTER the device appears:
+    # opening it immediately can give "permission denied", so retry for a few seconds
+    fd = None
+    end = time.time() + 8
+    while fd is None:
+        try:
+            fd = os.open(dev, os.O_RDWR)
+        except PermissionError:
+            if time.time() > end:
+                break
+            time.sleep(0.25)
+    if fd is None:
         raise RuntimeError("no access to %s. Run install-teensy-ignore.sh once via SSH as root, then try again. "
-                           "The Teensy is now in its bootloader (BMS off): unplug/replug its USB "
-                           "to start the old firmware again." % dev)
+                           "The Teensy is now in its bootloader (BMS off): run the update again (it continues "
+                           "from the bootloader), or unplug/replug its USB to start the old firmware again." % dev)
     try:
         for k, blk in enumerate(blocks):
             addr = blk * block
