@@ -33,8 +33,9 @@
 
 #define MAX_MODULE_ADDR     0x3E
 
-#define EEPROM_VERSION      0x1B    //update any time EEPROM struct below is changed.
-#define EEPROM_VERSION_VIC5 0x1A    //previous version (after the one-time reset): is migrated, settings are kept
+#define EEPROM_VERSION      0x1C    //update any time EEPROM struct below is changed.
+#define EEPROM_VERSION_VIC6 0x1B    //previous version: is migrated (v26.24: DischV 3.2 -> 3.0, UnderV 3.0 -> 2.9 if still default)
+#define EEPROM_VERSION_VIC5 0x1A    //older version (after the one-time reset): is migrated, settings are kept
 // 0x1A was the ONE-TIME RESET to defaults (only the CAN speed was kept), see setup()
 #define EEPROM_VERSION_VIC4 0x18    //TeslaBMS_Victron without CVL control: is migrated
 #define EEPROM_VERSION_VIC3 0x17    //TeslaBMS_Victron with total currents: is migrated to currents per string

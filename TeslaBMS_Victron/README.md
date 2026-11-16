@@ -146,8 +146,21 @@ when a value is illogical. The charge voltage used by the CVL control is always 
 ## Other fixes compared to TeslaBMSV2
 
 - ESS mode: delay timers for over/undervoltage no longer shared with the charge/discharge logic and no longer inverted
-- ESS mode: overvoltage no longer gives status Error (which also set DCL = 0 and opened the contactor). From
-  `OverVSetpoint` (4.20 V) CCL = 0, so charging stops; DCL stays normal, so discharging is always possible
+- ESS mode: cell voltage never gives status Error any more (Error set CCL **and** DCL to 0 and opened the
+  contactor). Normal range 3.00 – 4.10 V per cell:
+
+  | Lowest / highest cell | CCL | DCL | Message |
+  |---|---|---|---|
+  | highest ≥ 4.25 V (`OverVSetpoint` + 50 mV) | 0 | normal | alarm high voltage |
+  | highest ≥ 4.20 V (`OverVSetpoint`) | 0 | normal | warning high voltage |
+  | highest 4.10 V (`ChargeVsetpoint`) | normal (CVL is lowered) | normal | – |
+  | lowest 3.30 → 3.00 V (`DischVsetpoint` + `DisTaper`) | normal | tapers to 0 | – |
+  | lowest < 2.90 V (`UnderVSetpoint`) | slow (`chargecurrentend`, 2.5 A per string) | 0 | warning low voltage |
+  | lowest < 2.85 V | slow | 0 | alarm low voltage |
+
+  CCL = 0 only for a cell that is too high, DCL = 0 only for a cell that is too low (and both for temperature).
+  v26.24 changes the old defaults `DischVsetpoint` 3.20 → 3.00 V and `UnderVSetpoint` 3.00 → 2.90 V once,
+  only when they were still at the old default.
 - Cell count per module is updated regardless of debug output
 - "Series Cells Fault" only worked with debug output on; replaced by the string monitoring
 

@@ -40,8 +40,10 @@
       * every 30 s an automatic search for the missing modules
   - 0x355 SOC high resolution (0.01%) fixed (was a factor 10 too low).
   - ESS mode: over/undervoltage delay timers fixed.
-  - ESS mode: overvoltage is no Error: CCL = 0 from OverVSetpoint (4.20 V), DCL stays
-    normal so discharging is always possible (also no contactor/breaker trip for it).
+  - ESS mode: cell voltage never gives Error (Error sets CCL and DCL to 0). Normal range
+    3.00 - 4.10 V. Too high (>= OverVSetpoint 4.20 V): CCL = 0, DCL normal. Too low
+    (DischVsetpoint 3.00 V): DCL = 0, charging allowed; below UnderVSetpoint (2.90 V) slowly
+    (chargecurrentend per string), never CCL = 0. No contactor/breaker trip for cell voltage.
   ==========================================================================
 */
 
@@ -81,7 +83,6 @@ bool moduleAlarm = false;            // ... for longer than settings.ModuleAlarm
 unsigned long moduleMissingSince = 0;
 unsigned long rescanTimer = 0;
 #define RESCAN_INTERVAL 30000        // ms between searches for missing modules
-unsigned long essUnderTimer = 0; // timer for the ESS undervoltage check (500 ms block)
 
 //////// NEW: Victron-style CVL control ////////
 #define CVL_DOWN_RATE 0.10f   // V per second lowering as long as the highest cell is above the charge voltage
@@ -90,8 +91,9 @@ unsigned long essUnderTimer = 0; // timer for the ESS undervoltage check (500 ms
 #define CVL_FAR_BAND  0.050f  // V per cell: highest cell this far below the target -> CVL straight to the maximum
 #define CVL_START_MARGIN 0.10f // V: when lowering, start no higher than battery voltage + this margin
 #define OV_RELEASE    0.050f  // V per cell: CCL=0 due to overvoltage is released below OverV - this value
-#define OV_ALARM_MARGIN 0.050f // V per cell: high voltage ALARM at OverV + this value (default 4.25 V);
-                               // the high voltage WARNING is at OverV itself (default 4.20 V)
+#define OV_ALARM_MARGIN 0.050f // V per cell: high voltage ALARM at OverV + this value (default 4.25 V),
+                               // low voltage ALARM at UnderV - this value (default 2.85 V);
+                               // the WARNINGS are at OverV (4.20 V) and UnderV (2.90 V) themselves
 float cvlActual = 0.0f;       // V, the CVL sent to Victron
 unsigned long cvlTimer = 0;
 bool overVoltLatch = false;   // highest cell >= OverVSetpoint: CCL = 0 (chargers off)
@@ -276,11 +278,11 @@ void loadSettings()
   settings.canSpeed = 500000;
   settings.batteryID = 0x01; //in the future should be 0xFF to force it to ask for an address
   settings.OverVSetpoint = 4.2f;
-  settings.UnderVSetpoint = 3.0f;
+  settings.UnderVSetpoint = 2.9f;  // below this: warning + slow charging (normal range ends at DischVsetpoint)
   settings.ChargeVsetpoint = 4.1f;
   settings.ChargeHys = 0.2f; // voltage drop required for charger to kick back on
-  settings.WarnOff = 0.1f; //voltage offset to raise a warning
-  settings.DischVsetpoint = 3.2f;
+  settings.WarnOff = 0.1f; // not used anymore (warnings at OverVSetpoint / UnderVSetpoint)
+  settings.DischVsetpoint = 3.0f;  // DCL = 0 here: lower end of the normal range 3.00 - 4.10 V
   settings.DischHys = 0.2f; // Discharge voltage offset
   settings.CellGap = 0.2f; //max delta between high and low cell
   settings.OverTSetpoint = 65.0f;
@@ -436,8 +438,19 @@ void setup()
   // connection to the GX would drop (e.g. 250 kbit/s on VE.Can for Lynx current).
   if (settings.version == EEPROM_VERSION_VIC5)
   {
-    // previous version: keep all settings, only add the new field
+    // older version: keep all settings, only add the new field
     settings.JsonOut = 0;
+    settings.version = EEPROM_VERSION_VIC6;
+  }
+  if (settings.version == EEPROM_VERSION_VIC6)
+  {
+    // v26.24: normal range 3.00 - 4.10 V. Only when the OLD defaults are still set:
+    // DCL = 0 at 3.00 V (was 3.20 V), low voltage warning at 2.90 V (was 3.00 V + WarnOff).
+    if (fabsf(settings.DischVsetpoint - 3.2f) < 0.001f && fabsf(settings.UnderVSetpoint - 3.0f) < 0.001f)
+    {
+      settings.DischVsetpoint = 3.0f;
+      settings.UnderVSetpoint = 2.9f;
+    }
     settings.version = EEPROM_VERSION;
     EEPROM.put(0, settings);
   }
@@ -656,7 +669,7 @@ void loop()
         contctrl = contctrl | 4; //turn on negative contactor
         if (settings.tripcont != 0)
         {
-          if (bms.getLowCellVolt() > settings.UnderVSetpoint)   // also at overvoltage: discharging must stay possible (CCL = 0)
+          if (true)   // ESS: always, also at over/undervoltage - CCL/DCL protect the battery, it must stay chargeable and dischargeable
           {
             if (digitalRead(OUT2) == LOW && digitalRead(OUT4) == LOW)
             {
@@ -854,9 +867,9 @@ void loop()
         {
           if (settings.tripcont == 0)
           {
-            // Overvoltage is NOT an Error in ESS mode: CCL = 0 (overVoltLatch) stops charging,
-            // discharging must stay possible to bring the voltage down.
-            if (bms.getLowCellVolt() < settings.UnderVSetpoint || bms.getHighTemperature() > settings.OverTSetpoint)
+            // Cell voltage is NEVER an Error in ESS mode (Error sets CCL and DCL to 0):
+            // too high -> CCL = 0, too low -> DCL = 0, see currentlimit(). Only temperature.
+            if (bms.getHighTemperature() > settings.OverTSetpoint)
             {
               digitalWrite(OUT2, HIGH);//trip breaker
               bmsstatus = Error;
@@ -868,7 +881,7 @@ void loop()
           }
           else
           {
-            if (bms.getLowCellVolt() < settings.UnderVSetpoint || bms.getHighTemperature() > settings.OverTSetpoint)  // not at overvoltage, see above
+            if (bms.getHighTemperature() > settings.OverTSetpoint)  // not for cell voltage, see above
             {
               digitalWrite(OUT2, LOW);//turn off contactor
               contctrl = contctrl & 253; //turn off contactor
@@ -901,7 +914,7 @@ void loop()
             digitalWrite(OUT4, LOW);//ensure precharge is low
           }
 
-          if (bms.getLowCellVolt() > settings.UnderVSetpoint && bms.getHighTemperature() < settings.OverTSetpoint && bms.getStringsOnline() > 0) // NEW: at least 1 complete string; overvoltage is no Error in ESS mode
+          if (bms.getHighTemperature() < settings.OverTSetpoint && bms.getStringsOnline() > 0) // NEW: at least 1 complete string; cell voltage is no Error in ESS mode
           {
             bmsstatus = Ready;
           }
@@ -1062,20 +1075,9 @@ void loop()
     //UV  check
     if (settings.ESSmode == 1)
     {
-      // NEW: own timers (previously shared with the charge/discharge trip logic and inverted)
-      if (bms.getLowCellVolt() < settings.UnderVSetpoint || bms.getHighCellVolt() < settings.UnderVSetpoint)
-      {
-        if ((millis() - essUnderTimer) > settings.triptime) //undervoltage longer than triptime
-        {
-          bmsstatus = Error;
-        }
-      }
-      else
-      {
-        essUnderTimer = millis();
-      }
-      // Overvoltage: no Error in ESS mode (that would also set DCL = 0). Charging is stopped
-      // with CCL = 0 (overVoltLatch in currentlimit()); discharging stays allowed.
+      // Cell voltage gives NO Error in ESS mode (Error would set CCL and DCL to 0):
+      // - too high: CCL = 0 (overVoltLatch in currentlimit()), discharging stays allowed
+      // - too low:  DCL = 0, charging stays allowed (slowly below UnderVSetpoint)
     }
     else //In 'vehicle' mode
     {
@@ -1213,8 +1215,10 @@ void alarmupdate()
   // High voltage: a full battery (ChargeVsetpoint, e.g. 4.10 V) is normal operation and gives
   // no warning. Warning only at real overvoltage (OverVSetpoint, 4.20 V, where CCL = 0),
   // alarm at OverVSetpoint + OV_ALARM_MARGIN (4.25 V).
+  // Low voltage (mirrored): normal down to DischVsetpoint (3.00 V, DCL = 0), warning below
+  // UnderVSetpoint (2.90 V), alarm below UnderVSetpoint - OV_ALARM_MARGIN (2.85 V).
   alarm[0] = almPair(hc >= settings.OverVSetpoint + OV_ALARM_MARGIN, 2)
-           | almPair(lc < settings.UnderVSetpoint, 4)
+           | almPair(lc < settings.UnderVSetpoint - OV_ALARM_MARGIN, 4)
            | almPair(ht > settings.OverTSetpoint, 6);
   // byte 1: bits 0-1 low temperature; 2-3 high temp charge, 4-5 low temp charge, 6-7 high current: not supported
   alarm[1] = almPair(lt < settings.UnderTSetpoint, 0);
@@ -1225,7 +1229,7 @@ void alarmupdate()
 
   ///// warnings (same layout) /////
   warning[0] = almPair(hc >= settings.OverVSetpoint, 2)
-             | almPair(lc < (settings.UnderVSetpoint + settings.WarnOff), 4)   // WarnOff: low side only
+             | almPair(lc < settings.UnderVSetpoint, 4)
              | almPair(ht > (settings.OverTSetpoint - settings.WarnToff), 6);
   warning[1] = almPair(lt < (settings.UnderTSetpoint + settings.WarnToff), 0);
   warning[2] = almPair(moduleWarning || noData, 6);
@@ -3328,7 +3332,7 @@ case 'r':  //r for reset
         SERIALCONSOLE.println();
         SERIALCONSOLE.println();
         SERIALCONSOLE.println("Alarm and Warning Settings Menu");
-        SERIALCONSOLE.print("1 - Low Voltage Warning Offset: ");
+        SERIALCONSOLE.print("1 - Voltage Warning Offset (not used anymore): ");
         SERIALCONSOLE.print(settings.WarnOff * 1000, 0);
         SERIALCONSOLE.println("mV");
         SERIALCONSOLE.print("2 - Cell Voltage Difference Alarm: ");
@@ -4167,6 +4171,12 @@ void currentlimit()
   if (chargecurrent < 0) chargecurrent = 0;
   if (discurrent > settings.discurrentmax) discurrent = settings.discurrentmax;
   if (chargecurrent > settings.chargecurrentmax) chargecurrent = settings.chargecurrentmax;
+  // Very empty (lowest cell below UnderVSetpoint): charge slowly, but NEVER CCL = 0 for a low
+  // battery. CCL = 0 only for a cell that is too high (or temperature).
+  if (bms.getLowCellVolt() < settings.UnderVSetpoint && chargecurrent > settings.chargecurrentend)
+  {
+    chargecurrent = settings.chargecurrentend;
+  }
 
   // Total for the battery = per string x number of strings.
   // ScaleLimits = 1: only count strings that are online; 0: always the set number.
