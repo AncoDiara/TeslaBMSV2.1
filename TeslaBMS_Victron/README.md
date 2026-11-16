@@ -15,13 +15,46 @@ Setting up a Windows laptop to always fetch and flash the latest version: see **
 
 ## Hardware
 
-- SimpBMS V2 board with **Teensy 3.2** (Teensyduino; libraries FlexCAN and ADC come with Teensyduino)
+- **Teensy 3.2** on a SimpBMS V2 board, **or** a **Teensy 4.0** on an own board with CAN transceiver
+  and the Tesla serial bus (Teensyduino; libraries FlexCAN, FlexCAN_T4 and ADC come with Teensyduino)
 - Tesla Model S/X battery modules (6 cells in series, 6S74P)
 - Victron GX device (VenusOS) on CAN-bus (VE.Can / BMS-Can, 500 kbit/s)
 
 No external "Filters" library is needed anymore: the low-pass filter for the current measurement is built in (`LowPassFilter.h`).
 There are several libraries called "Filters", and installing the wrong one gave the error
 `'FilterOnePole' does not name a type`.
+
+## Teensy models: one firmware, hardware differences apart
+
+The same source code runs on every supported Teensy. Only the hardware differs, and that is kept
+in two files:
+
+| File | Contents |
+|---|---|
+| [`board.h`](board.h) | per model: CAN bus, serial port of the Tesla modules, display port, pins of the inputs/outputs |
+| [`hal.cpp`](hal.cpp) / [`hal.h`](hal.h) | CAN driver (FlexCAN on 3.2, FlexCAN_T4 on 4.x), watchdog, reset reason, low supply voltage detection |
+
+The compiler chooses the model from the board selected in the Arduino IDE (*Tools → Board*):
+
+| | Teensy 3.2 (SimpBMS V2) | Teensy 4.0 (own board) |
+|---|---|---|
+| CAN to the GX | Can0, pin 3 TX / 4 RX | CAN1, pin 22 TX / 23 RX (`BMS_CAN_BUS`) |
+| Tesla module bus | Serial3, pin 7 RX / 8 TX | Serial2, pin 7 RX / 8 TX (same pins) |
+| Display / serial CAN adapter | Serial2, pin 9 / 10 | Serial5, pin 21 RX / 20 TX |
+| Inputs IN1–4, outputs OUT1–8 | SimpBMS V2 pins | not present (`PIN_NONE`), fill in `board.h` if your board has them |
+| CAN receive buffer | FlexCAN library | 256 messages, filled from the interrupt (nothing lost during the ~0.7 s module read round) |
+| Watchdog | WDOG, ~5.5 s | WDOG3, ~5.5 s |
+| Save SOC at low supply voltage | yes | no (no such interrupt on the i.MX RT) |
+| `hw` in the JSON | `T32` | `T40` |
+
+GitHub Actions builds both from every commit; a release contains `TeslaBMS_Victron-v<x>.hex`
+(Teensy 3.2) and `TeslaBMS_Victron_T40-v<x>.hex` (Teensy 4.0), each with a `.sha256`.
+The dashboard passes the model of the running Teensy to `teensy_flash.py`, which takes the
+matching file and refuses a `.hex` for another model (a Teensy 4 program lives at 0x60000000 and
+starts with a FlexSPI boot header).
+
+**Own board with a different wiring?** Change only the block of your Teensy in `board.h`
+(CAN bus `CAN1`/`CAN2`/`CAN3`, serial ports, pins). The rest of the code stays the same.
 
 ## Topology: strings
 
@@ -100,6 +133,8 @@ Passive (bleed resistors in the Tesla module), per string, per cell:
 - only cells above **3.90 V** (menu `b` → `5`)
 - **start** when a cell is more than **15 mV** above the lowest cell in its string (menu `b` → `l`)
 - **stop** when it is only **5 mV** above it (menu `b` → `6`)
+- start/stop can also be set from the dashboard (block *Maintenance & updates* → *Balancing*), which
+  sends the direct command `B<start>,<stop>` (mV, e.g. `B7,3`) and saves it in the Teensy
 - strings cannot balance each other; incomplete strings are not balanced
 - the number of balancing cells is now really a count of cells (previously the sum of bitmasks);
   in the pack details a `*` after the voltage shows which cells are being bled

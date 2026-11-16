@@ -106,6 +106,19 @@ jobs:
           cat ./*.sha256 versions.json
           ls -la
 
+      - name: Test the hex files with the Cerbo flash script (dry run)
+        run: |
+          FW=${{ steps.ver.outputs.fw }}
+          F=TeslaBMS_Victron/cerbo/teensy_flash.py
+          python3 -I $F --file "release/TeslaBMS_Victron-$FW.hex" --board T32 --no-serial --yes --dry-run
+          python3 -I $F --file "release/TeslaBMS_Victron_T40-$FW.hex" --board T40 --no-serial --yes --dry-run
+          # a hex for the wrong model must be refused
+          if python3 -I $F --file "release/TeslaBMS_Victron_T40-$FW.hex" --board T32 --no-serial --yes --dry-run; then
+            echo "::error::Teensy 4.0 hex was accepted for a Teensy 3.2"; exit 1; fi
+          if python3 -I $F --file "release/TeslaBMS_Victron-$FW.hex" --board T40 --no-serial --yes --dry-run; then
+            echo "::error::Teensy 3.2 hex was accepted for a Teensy 4.0"; exit 1; fi
+          echo "flash script checks OK"
+
       - name: Keep the build (also for branches)
         uses: actions/upload-artifact@v4
         with:

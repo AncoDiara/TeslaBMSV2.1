@@ -17,7 +17,9 @@ The repository is public: you do **not** need a GitHub account for this.
 3. **Tools → Board → Boards Manager**, search for **Teensy** and click Install.
    This already includes the FlexCAN and ADC libraries. No other libraries are needed
    (the low-pass filter is built into the sketch).
-4. **Tools → Board → Teensy → Teensy 3.2 / 3.1**.
+4. **Tools → Board → Teensy → Teensy 3.2 / 3.1** (SimpBMS V2), or **Teensy 4.0** for a Teensy 4.0
+   board. The same sketch works for both; the compiler picks the right hardware settings
+   (see `board.h`). Choose the board that is actually connected: the wrong one will not run.
    On Windows 10/11 no separate driver is needed.
 5. Close the IDE (so that the folder `Documents\Arduino` exists).
 
