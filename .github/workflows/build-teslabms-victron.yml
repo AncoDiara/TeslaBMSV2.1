@@ -54,9 +54,10 @@ jobs:
           echo "tag=fw-${FW}_flow-${FLOW}" >> "$GITHUB_OUTPUT"
           echo "Firmware $FW, flow $FLOW"
 
-          # guard: a change to the firmware or the flow must raise its version number
+          # guard (master only, work branches may have intermediate commits):
+          # a change to the firmware or the flow must raise its version number
           BEFORE="${{ github.event.before }}"
-          if [ "${{ github.event_name }}" = push ] && [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ]; then
+          if [ "${{ github.event_name }}" = push ] && [ "${{ github.ref }}" = refs/heads/master ] && [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ]; then
             git cat-file -e "$BEFORE^{commit}" 2>/dev/null || git fetch --depth=1 origin "$BEFORE"
             CH=$(git diff --name-only "$BEFORE" HEAD -- TeslaBMS_Victron)
             FWCH=$(echo "$CH" | grep -vE '^TeslaBMS_Victron/(nodered|cerbo)/|\.md$|^TeslaBMS_Victron/version\.h$' | grep . || true)
