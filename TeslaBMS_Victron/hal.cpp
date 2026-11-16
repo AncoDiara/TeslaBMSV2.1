@@ -9,14 +9,18 @@ BmsCan bmsCan;
 #if defined(BOARD_T3)
 // ================================ Teensy 3.2 ================================
 #include <FlexCAN.h>
+// FlexCAN.h has compatibility macros "ext" -> flags.extended and "rtr" -> flags.remote;
+// they would also rename BmsCanMsg::ext. Use the real field names here.
+#undef ext
+#undef rtr
 
 void BmsCan::begin(uint32_t baud)
 {
   Can0.begin(baud);
   CAN_filter_t allPassFilter; // enables extended addresses
   allPassFilter.id = 0;
-  allPassFilter.ext = 1;
-  allPassFilter.rtr = 0;
+  allPassFilter.flags.extended = 1;
+  allPassFilter.flags.remote = 0;
   for (int filterNum = 4; filterNum < 16; filterNum++)
   {
     Can0.setFilter(allPassFilter, filterNum);
@@ -36,7 +40,7 @@ bool BmsCan::read(BmsCanMsg &m)
   Can0.read(c);
   m.id = c.id;
   m.len = c.len;
-  m.ext = c.ext;
+  m.ext = c.flags.extended ? 1 : 0;
   memcpy(m.buf, c.buf, 8);
   return true;
 }
@@ -47,7 +51,7 @@ bool BmsCan::write(const BmsCanMsg &m)
   memset(&c, 0, sizeof(c));   // timeout 0, rtr 0 (as before: global message, zero-initialised)
   c.id = m.id;
   c.len = m.len;
-  c.ext = m.ext;
+  c.flags.extended = m.ext ? 1 : 0;
   memcpy(c.buf, m.buf, 8);
   return Can0.write(c) != 0;
 }
