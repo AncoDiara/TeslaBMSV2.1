@@ -340,6 +340,7 @@ void loadNewSettings()
   settings.balanceStart = 0.015f; // start balancing at > 15 mV difference
   settings.AutoTopology = 1;      // at every start: count modules = expected number
   settings.CVLControl = 1;        // Victron style: lower CVL, CCL stays open until OverVSetpoint
+  settings.StorageInput = 0;      // storage mode via IN1 off: a full battery stays at ChargeVsetpoint
   settings.JsonOut = 0;           // JSON output over USB (Node-RED) off by default
 }
 
@@ -440,6 +441,12 @@ void setup()
       settings.DischVsetpoint = 3.0f;
       settings.UnderVSetpoint = 2.9f;
     }
+    settings.version = EEPROM_VERSION_VIC7;
+  }
+  if (settings.version == EEPROM_VERSION_VIC7)
+  {
+    // v26.28: storage mode via input IN1 only when switched on explicitly (default off)
+    settings.StorageInput = 0;
     settings.version = EEPROM_VERSION;
     EEPROM.put(0, settings);
   }
@@ -458,6 +465,7 @@ void setup()
   if (settings.ScaleLimits > 1) settings.ScaleLimits = 1;
   if (settings.AutoTopology > 1) settings.AutoTopology = 1;
   if (settings.CVLControl > 1) settings.CVLControl = 1;
+  if (settings.StorageInput > 1) settings.StorageInput = 0;
   if (settings.JsonOut > 1) settings.JsonOut = 0;
   if (settings.JsonOut == 1) debug = 0; // JSON mode: no text output in between
   if (!(settings.balanceStart >= 0.002f && settings.balanceStart <= 0.5f)) settings.balanceStart = 0.015f;
@@ -658,7 +666,10 @@ void loop()
             mainconttimer = 0;
           }
         }
-        if (digitalRead(IN1) == LOW)//Key OFF
+        // Storage mode (CVL = StoreVsetpoint x Scells, e.g. 3.80 V per cell) only when switched on
+        // in the menu (m -> o) AND input IN1 is high. Default off: a floating/disturbed IN1 on a
+        // board without wiring may never lower the CVL of a full battery.
+        if (settings.StorageInput != 1 || digitalRead(IN1) == LOW)//Key OFF
         {
           if (storagemode == 1)
           {
@@ -1976,6 +1987,7 @@ unsigned long canSlowTimer = 0;
     lt  duration of the last read round in ms (with many modules: keep it well below 3000)
     hw  Teensy model (T32, T40, T41)
     fw  firmware version          st  bmsstatus (0 Boot,1 Ready,2 Drive,3 Charge,4 Precharge,5 Error)
+    sm  storage mode (1 = CVL limited to StoreVsetpoint x Scells, via IN1 when switched on in menu m -> o)
     cvl/ccl/dcl  limits to Victron (V/A)    v pack voltage (V)   i current (A, + = charging)   soc (%)
     so/se  strings online/expected   mo/me modules online/expected   bal number of cells balancing
     lo/hi lowest/highest cell (V) with loid/hiid ("Pk3 C5")   tlo/thi lowest/highest temperature (C)
@@ -1999,6 +2011,7 @@ void printJson()
   SERIALCONSOLE.print("\",\"hw\":\""); SERIALCONSOLE.print(BOARD_HW);   // Teensy model: T32, T40, T41
   SERIALCONSOLE.print("\",\"st\":"); SERIALCONSOLE.print(bmsstatus);
   SERIALCONSOLE.print(",\"cvl\":"); jsonFloat(cvlActual, 2);
+  SERIALCONSOLE.print(",\"sm\":"); SERIALCONSOLE.print(storagemode);   // 1 = storage mode (CVL = StoreVsetpoint x Scells)
   SERIALCONSOLE.print(",\"ccl\":"); jsonFloat(chargecurrent * 0.1f, 1);
   SERIALCONSOLE.print(",\"dcl\":"); jsonFloat(discurrent * 0.1f, 1);
   SERIALCONSOLE.print(",\"v\":"); jsonFloat(bms.getPackVoltage(), 3);
@@ -2389,6 +2402,12 @@ void menu()
 
       case 'j': // JSON output over USB (Node-RED) on/off
         settings.JsonOut = !settings.JsonOut;
+        menuload = 1;
+        incomingByte = 'm';
+        break;
+
+      case 'o': // storage mode via input IN1 on/off
+        settings.StorageInput = !settings.StorageInput;
         menuload = 1;
         incomingByte = 'm';
         break;
@@ -3135,6 +3154,8 @@ case 'r':  //r for reset
         SERIALCONSOLE.println(settings.JsonOut ? "On" : "Off");
         SERIALCONSOLE.print("v - Victron CVL control (lower CVL 0.1V/s, CCL=0 only at OverV) : ");
         SERIALCONSOLE.println(settings.CVLControl ? "On" : "Off (old: CCL taper, fixed CVL)");
+        SERIALCONSOLE.print("o - Storage mode via input IN1 (CVL = StoreVsetpoint x Scells) : ");
+        SERIALCONSOLE.println(settings.StorageInput ? "On" : "Off");
         SERIALCONSOLE.print("s - Scale CCL/DCL with strings online : ");
         SERIALCONSOLE.println(settings.ScaleLimits ? "On" : "Off");
         SERIALCONSOLE.println("q - Go back to menu");

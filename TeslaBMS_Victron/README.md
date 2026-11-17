@@ -126,6 +126,14 @@ Modules are grouped into **strings** (modules in series), and the strings are co
 - can be switched off (old behaviour: fixed CVL, CCL taper): menu `m` → `v`
 - the status line in the serial monitor shows CVL, CCL and DCL
 
+### Storage mode (input IN1)
+
+The original SimpBMS has a *storage mode*: with input IN1 (key) high the CVL is limited to
+`StoreVsetpoint` × Scells (default 3.80 V per cell). Since v26.28 this only works when switched on
+in the menu (`m` → `o`, default **off**): on a board where IN1 is not wired, a floating or disturbed
+input could otherwise lower the CVL of a full battery to 3.80 V per cell. When it is active, the
+JSON field `sm` is 1 and the dashboard shows it in the CVL tile.
+
 ## Balancing
 
 Passive (bleed resistors in the Tesla module), per string, per cell:

@@ -32,7 +32,8 @@
 
 #define MAX_MODULE_ADDR     0x3E
 
-#define EEPROM_VERSION      0x1C    //update any time EEPROM struct below is changed.
+#define EEPROM_VERSION      0x1D    //update any time EEPROM struct below is changed.
+#define EEPROM_VERSION_VIC7 0x1C    //previous version: is migrated (v26.28: new field StorageInput = 0)
 #define EEPROM_VERSION_VIC6 0x1B    //previous version: is migrated (v26.24: DischV 3.2 -> 3.0, UnderV 3.0 -> 2.9 if still default)
 #define EEPROM_VERSION_VIC5 0x1A    //older version (after the one-time reset): is migrated, settings are kept
 // 0x1A was the ONE-TIME RESET to defaults (only the CAN speed was kept), see setup()
@@ -115,4 +116,5 @@ typedef struct {
   uint8_t AutoTopology;      // 1 = at every start: renumber + number of strings = what is found
   uint8_t CVLControl;        // 1 = Victron style: lower CVL (0.1 V/s) instead of tapering CCL
   uint8_t JsonOut;           // 1 = every 5 s one JSON line over USB (for Node-RED), text output off
+  uint8_t StorageInput;      // 1 = input IN1 high switches on storage mode (CVL = StoreVsetpoint x Scells); 0 = off (default)
 } EEPROMSettings;
