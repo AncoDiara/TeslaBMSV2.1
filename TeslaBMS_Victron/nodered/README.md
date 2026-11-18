@@ -65,8 +65,10 @@ never two at the same time.
 For a SolarEdge StorEdge inverter (e.g. SE10K-RWS) next to the Victron system, with the Victron
 energy meter as the only grid meter. Node-RED on the GX coordinates both:
 
-- every 5 s: grid power (L1+L2+L3) and Victron battery power from `com.victronenergy.system`,
-  SolarEdge battery power over Modbus TCP;
+- every 5 s: grid power (L1+L2+L3) and Victron battery power, either from this GX (`com.victronenergy.system`)
+  or from **another GX over MQTT** (setting *grid + battery of*: that GX has the grid meter; enable
+  *MQTT on LAN (insecure)* on it, port 1883; the portal ID is found automatically and a keep alive is sent
+  every 30 s), and the SolarEdge battery power over Modbus TCP;
 - **T = grid − Victron battery − SolarEdge battery** (battery power + = charging) is what all storage
   together has to deliver (T > 0) or may absorb (T < 0);
 - the SolarEdge takes the set **share** of T: discharge (command mode 4, discharge limit) or charge from its
