@@ -8,7 +8,7 @@ BmsCan bmsCan;
 
 // ---------------------------------------------------------------- CAN bus health (all models)
 #if defined(BOARD_T4)
-  #define BMS_CAN_BASE ((uint32_t)BMS_CAN_BUS)
+  #define BMS_CAN_BASE BMS_CAN_REG_BASE        // board.h
 #else
   #define BMS_CAN_BASE 0x40024000UL      // FlexCAN0 of the MK20DX256 (Teensy 3.2)
 #endif

@@ -36,6 +36,9 @@
   // CAN (VE.Can / BMS-Can to the GX): FlexCAN_T4 bus
   //   CAN1 = pin 22 (TX) / 23 (RX)   CAN2 = pin 1 (TX) / 0 (RX)   CAN3 = pin 31 (TX) / 30 (RX)
   #define BMS_CAN_BUS CAN1
+  // register base of that CAN controller (error counters / bus state): CAN1 0x401D0000,
+  // CAN2 0x401D4000, CAN3 0x401D8000 - change together with BMS_CAN_BUS
+  #define BMS_CAN_REG_BASE 0x401D0000UL
 
   // Tesla module bus (612500 baud). Serial2 = pin 7 (RX) / 8 (TX):
   // the same physical pins as Serial3 on the Teensy 3.2 / SimpBMS V2.
