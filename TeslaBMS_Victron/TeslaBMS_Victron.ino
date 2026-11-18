@@ -105,6 +105,8 @@ struct CanLogEntry { uint32_t id; uint8_t ext; uint8_t len; uint32_t count; uint
 CanLogEntry canLog[CANLOG_SIZE];
 uint8_t canLogUsed = 0;
 uint32_t lgKeepAliveMs = 0;   // last 0x305 'keep alive' from the inverter (LG RESU protocol)
+uint32_t lastCurrentMs = 0;   // last current measurement received over CAN (Lynx / shunt)
+bool socFromVoltage = false;  // SOC calculated from the cell voltage (no current measurement)
 
 void canLogAdd(const BmsCanMsg &m)
 {
@@ -1767,7 +1769,11 @@ void updateSOC() {
 
   SOC = ((ampsecond * 0.27777777777778) / (settings.CAP * settings.Pstrings * 1000)) * 100;
 
-  if (settings.voltsoc == 1 || settings.cursens == 0) {
+  // NEW: current via CAN but none received for 30 s (e.g. on a SolarEdge without Lynx/shunt):
+  // the coulomb count would freeze, so take the SOC from the cell voltage instead.
+  socFromVoltage = (settings.voltsoc == 1 || settings.cursens == 0 ||
+                    (settings.cursens == Canbus && (lastCurrentMs == 0 || millis() - lastCurrentMs > 30000)));
+  if (socFromVoltage) {
     SOC = map(uint16_t(bms.getLowCellVolt() * 1000), settings.socvolt[0], settings.socvolt[2], settings.socvolt[1], settings.socvolt[3]);
 
     ampsecond = (SOC * settings.CAP * settings.Pstrings * 10) / 0.27777777777778;
@@ -2039,6 +2045,7 @@ unsigned long canSlowTimer = 0;
     ip  CAN protocol to the inverter (0 Victron, 1 LG RESU LV for SolarEdge RWS)
     ka  LG protocol: seconds since the last 'keep alive' 0x305 of the inverter (-1 = never)
     cx  LG protocol: received CAN messages [id, ext, count, "last data hex"] (max 16 identifiers)
+    sv  1 = SOC calculated from the cell voltage (no current measurement for 30 s or set so)
     sm  storage mode (1 = CVL limited to StoreVsetpoint x Scells, via IN1 when switched on in menu m -> o)
     cvl/ccl/dcl  limits to Victron (V/A)    v pack voltage (V)   i current (A, + = charging)   soc (%)
     so/se  strings online/expected   mo/me modules online/expected   bal number of cells balancing
@@ -2063,6 +2070,7 @@ void printJson()
   SERIALCONSOLE.print("\",\"hw\":\""); SERIALCONSOLE.print(BOARD_HW);   // Teensy model: T32, T40, T41
   SERIALCONSOLE.print("\",\"st\":"); SERIALCONSOLE.print(bmsstatus);
   SERIALCONSOLE.print(",\"cvl\":"); jsonFloat(cvlActual, 2);
+  SERIALCONSOLE.print(",\"sv\":"); SERIALCONSOLE.print(socFromVoltage ? 1 : 0);   // 1 = SOC from cell voltage (no current measurement)
   SERIALCONSOLE.print(",\"sm\":"); SERIALCONSOLE.print(storagemode);   // 1 = storage mode (CVL = StoreVsetpoint x Scells)
   SERIALCONSOLE.print(",\"ip\":"); SERIALCONSOLE.print(settings.InverterProto);   // 0 Victron, 1 LG RESU LV (SolarEdge)
   {
@@ -4022,6 +4030,7 @@ void Rx309()
 
 void CAB300()
 {
+  lastCurrentMs = millis();
   for (int i = 0; i < 4; i++)
   {
     inbox = (inbox << 8) | inMsg.buf[i];
@@ -4050,6 +4059,7 @@ void CAB300()
 
 void CAB500()
 {
+  lastCurrentMs = millis();
   inbox = 0;
   for (int i = 1; i < 4; i++)
   {
@@ -4085,6 +4095,7 @@ void CAB500()
 void handleVictronLynx()
 {
   if (inMsg.buf[4] == 0xff && inMsg.buf[3] == 0xff) return;
+  lastCurrentMs = millis();
   int16_t current = (int)inMsg.buf[4] << 8; // in 0.1A increments
   current |= inMsg.buf[3];
   CANmilliamps = current * 100;
