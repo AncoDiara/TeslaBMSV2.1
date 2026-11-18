@@ -97,6 +97,41 @@ unsigned long rescanTimer = 0;
 #define OV_ALARM_MARGIN 0.050f // V per cell: high voltage ALARM at OverV + this value (default 4.25 V),
                                // low voltage ALARM at UnderV - this value (default 2.85 V);
                                // the WARNINGS are at OverV (4.20 V) and UnderV (2.90 V) themselves
+#define LG_MIN_PACK_V 41.0f   // V: LG RESU / SolarEdge RWS mode: the inverter accepts 40-62 V; DCL = 0 at least here
+
+// NEW: log of received CAN identifiers (for a new inverter: which messages does it send?)
+#define CANLOG_SIZE 16
+struct CanLogEntry { uint32_t id; uint8_t ext; uint8_t len; uint32_t count; uint8_t buf[8]; };
+CanLogEntry canLog[CANLOG_SIZE];
+uint8_t canLogUsed = 0;
+uint32_t lgKeepAliveMs = 0;   // last 0x305 'keep alive' from the inverter (LG RESU protocol)
+
+void canLogAdd(const BmsCanMsg &m)
+{
+  for (uint8_t i = 0; i < canLogUsed; i++)
+  {
+    if (canLog[i].id == m.id && canLog[i].ext == m.ext)
+    {
+      canLog[i].count++; canLog[i].len = m.len; memcpy(canLog[i].buf, m.buf, 8);
+      return;
+    }
+  }
+  if (canLogUsed < CANLOG_SIZE)
+  {
+    CanLogEntry &e = canLog[canLogUsed++];
+    e.id = m.id; e.ext = m.ext; e.len = m.len; e.count = 1; memcpy(e.buf, m.buf, 8);
+  }
+}
+
+// Lower end of the normal range (DCL = 0) for the selected inverter
+float dischargeCellV()
+{
+  float v = settings.DischVsetpoint;
+  if (settings.InverterProto == 1 && settings.Scells > 0 && v * settings.Scells < LG_MIN_PACK_V)
+    v = LG_MIN_PACK_V / settings.Scells;   // SolarEdge RWS switches off below 40 V
+  return v;
+}
+
 float cvlActual = 0.0f;       // V, the CVL sent to Victron
 unsigned long cvlTimer = 0;
 bool overVoltLatch = false;   // highest cell >= OverVSetpoint: CCL = 0 (chargers off)
@@ -341,6 +376,7 @@ void loadNewSettings()
   settings.AutoTopology = 1;      // at every start: count modules = expected number
   settings.CVLControl = 1;        // Victron style: lower CVL, CCL stays open until OverVSetpoint
   settings.StorageInput = 0;      // storage mode via IN1 off: a full battery stays at ChargeVsetpoint
+  settings.InverterProto = 0;     // CAN protocol: 0 = Victron, 1 = LG RESU LV (SolarEdge StorEdge RWS)
   settings.JsonOut = 0;           // JSON output over USB (Node-RED) off by default
 }
 
@@ -447,6 +483,12 @@ void setup()
   {
     // v26.28: storage mode via input IN1 only when switched on explicitly (default off)
     settings.StorageInput = 0;
+    settings.version = EEPROM_VERSION_VIC8;
+  }
+  if (settings.version == EEPROM_VERSION_VIC8)
+  {
+    // v26.29: CAN protocol to the inverter, default Victron
+    settings.InverterProto = 0;
     settings.version = EEPROM_VERSION;
     EEPROM.put(0, settings);
   }
@@ -466,6 +508,7 @@ void setup()
   if (settings.AutoTopology > 1) settings.AutoTopology = 1;
   if (settings.CVLControl > 1) settings.CVLControl = 1;
   if (settings.StorageInput > 1) settings.StorageInput = 0;
+  if (settings.InverterProto > 1) settings.InverterProto = 0;
   if (settings.JsonOut > 1) settings.JsonOut = 0;
   if (settings.JsonOut == 1) debug = 0; // JSON mode: no text output in between
   if (!(settings.balanceStart >= 0.002f && settings.balanceStart <= 0.5f)) settings.balanceStart = 0.015f;
@@ -1145,7 +1188,8 @@ void loop()
   if (millis() - looptime1 > settings.chargerspd)
   {
     looptime1 = millis();
-    VEcan();
+    if (settings.InverterProto == 1) lgResuCan();   // SolarEdge StorEdge RWS (LG RESU LV emulation)
+    else VEcan();                                  // Victron
     if (settings.ESSmode == 1)
     {
       chargercomms();
@@ -1987,6 +2031,9 @@ unsigned long canSlowTimer = 0;
     lt  duration of the last read round in ms (with many modules: keep it well below 3000)
     hw  Teensy model (T32, T40, T41)
     fw  firmware version          st  bmsstatus (0 Boot,1 Ready,2 Drive,3 Charge,4 Precharge,5 Error)
+    ip  CAN protocol to the inverter (0 Victron, 1 LG RESU LV for SolarEdge RWS)
+    ka  LG protocol: seconds since the last 'keep alive' 0x305 of the inverter (-1 = never)
+    cx  LG protocol: received CAN messages [id, ext, count, "last data hex"] (max 16 identifiers)
     sm  storage mode (1 = CVL limited to StoreVsetpoint x Scells, via IN1 when switched on in menu m -> o)
     cvl/ccl/dcl  limits to Victron (V/A)    v pack voltage (V)   i current (A, + = charging)   soc (%)
     so/se  strings online/expected   mo/me modules online/expected   bal number of cells balancing
@@ -2012,6 +2059,23 @@ void printJson()
   SERIALCONSOLE.print("\",\"st\":"); SERIALCONSOLE.print(bmsstatus);
   SERIALCONSOLE.print(",\"cvl\":"); jsonFloat(cvlActual, 2);
   SERIALCONSOLE.print(",\"sm\":"); SERIALCONSOLE.print(storagemode);   // 1 = storage mode (CVL = StoreVsetpoint x Scells)
+  SERIALCONSOLE.print(",\"ip\":"); SERIALCONSOLE.print(settings.InverterProto);   // 0 Victron, 1 LG RESU LV (SolarEdge)
+  if (settings.InverterProto == 1)
+  {
+    // keep alive of the inverter: seconds since the last 0x305 (-1 = never)
+    SERIALCONSOLE.print(",\"ka\":"); SERIALCONSOLE.print(lgKeepAliveMs ? (long)((millis() - lgKeepAliveMs) / 1000) : -1L);
+    SERIALCONSOLE.print(",\"cx\":[");
+    char hx[24];
+    for (uint8_t i = 0; i < canLogUsed; i++)
+    {
+      if (i) SERIALCONSOLE.print(",");
+      SERIALCONSOLE.print("["); SERIALCONSOLE.print(canLog[i].id); SERIALCONSOLE.print(",");
+      SERIALCONSOLE.print(canLog[i].ext); SERIALCONSOLE.print(","); SERIALCONSOLE.print(canLog[i].count); SERIALCONSOLE.print(",\"");
+      for (uint8_t k = 0; k < canLog[i].len && k < 8; k++) { snprintf(hx, sizeof(hx), "%02X", canLog[i].buf[k]); SERIALCONSOLE.print(hx); }
+      SERIALCONSOLE.print("\"]");
+    }
+    SERIALCONSOLE.print("]");
+  }
   SERIALCONSOLE.print(",\"ccl\":"); jsonFloat(chargecurrent * 0.1f, 1);
   SERIALCONSOLE.print(",\"dcl\":"); jsonFloat(discurrent * 0.1f, 1);
   SERIALCONSOLE.print(",\"v\":"); jsonFloat(bms.getPackVoltage(), 3);
@@ -2068,6 +2132,77 @@ void printJson()
   SERIALCONSOLE.println("]}");
 }
 
+/*
+  NEW: LG RESU LV protocol (CAN 500 kbit/s, 11-bit), for inverters that support the LG Chem
+  RESU 3.3 - 13 low voltage batteries, e.g. SolarEdge StorEdge SE5K-SE10K-RWS (40-62 V).
+  Messages of a real LG RESU LV (reverse engineered, see github.com/jens18/lgresu):
+    0x351  charge voltage (0.1 V), CCL (0.1 A), DCL (0.1 A)            little endian
+    0x355  SOC (%), SOH (%)
+    0x356  voltage (0.01 V), current (0.1 A, + = charging), temperature (0.1 C)
+    0x359  warnings (16 bits) + alarms (16 bits) in LG layout
+  The inverter sends 0x305 ('keep alive'). Everything the inverter sends is logged (JSON "cx").
+  Charging/discharging is allowed or blocked with CCL/DCL; the inverter itself decides the power
+  (SolarEdge: storage profile / meter / Modbus remote control).
+*/
+void lgResuCan()
+{
+  if (cvlActual <= 0.0f) cvlControl();
+  msg.ext = 0;
+
+  msg.id  = 0x351;
+  msg.len = 8;
+  msg.buf[0] = lowByte(uint16_t(cvlActual * 10));
+  msg.buf[1] = highByte(uint16_t(cvlActual * 10));
+  msg.buf[2] = lowByte(chargecurrent);
+  msg.buf[3] = highByte(chargecurrent);
+  msg.buf[4] = lowByte(discurrent);
+  msg.buf[5] = highByte(discurrent);
+  msg.buf[6] = lowByte(uint16_t((dischargeCellV() * settings.Scells) * 10));
+  msg.buf[7] = highByte(uint16_t((dischargeCellV() * settings.Scells) * 10));
+  bmsCan.write(msg);
+  delay(2);
+
+  msg.id  = 0x355;
+  msg.len = 8;
+  memset(msg.buf, 0, 8);
+  msg.buf[0] = lowByte(uint16_t(SOC));
+  msg.buf[1] = highByte(uint16_t(SOC));
+  msg.buf[2] = lowByte(uint16_t(SOH));
+  msg.buf[3] = highByte(uint16_t(SOH));
+  bmsCan.write(msg);
+  delay(2);
+
+  msg.id  = 0x356;
+  msg.len = 8;
+  memset(msg.buf, 0, 8);
+  msg.buf[0] = lowByte(uint16_t(bms.getPackVoltage() * 100));
+  msg.buf[1] = highByte(uint16_t(bms.getPackVoltage() * 100));
+  msg.buf[2] = lowByte(int16_t(currentact / 100));
+  msg.buf[3] = highByte(int16_t(currentact / 100));
+  msg.buf[4] = lowByte(int16_t(bms.getAvgTemperature() * 10));
+  msg.buf[5] = highByte(int16_t(bms.getAvgTemperature() * 10));
+  bmsCan.write(msg);
+  delay(2);
+
+  // 0x359 warnings in the LG layout (bit numbers of the 16-bit little endian word)
+  float hc = bms.getHighCellVolt(), lc = bms.getLowCellVolt();
+  uint16_t w = 0;
+  if (hc >= settings.OverVSetpoint) w |= 0x0002;                                   // battery high voltage
+  if (lc < settings.UnderVSetpoint) w |= 0x0004;                                    // battery low voltage
+  if (bms.getHighTemperature() > settings.OverTSetpoint - settings.WarnToff) w |= 0x0008; // high temperature
+  if (bms.getLowTemperature() < settings.UnderTSetpoint + settings.WarnToff) w |= 0x0010; // low temperature
+  if (moduleWarning || bms.getStringsOnline() == 0) w |= 0x0800;                    // BMS internal
+  if ((hc - lc) > settings.CellGap) w |= 0x1000;                                     // cell imbalance
+  msg.id  = 0x359;
+  msg.len = 8;
+  memset(msg.buf, 0, 8);
+  msg.buf[0] = lowByte(w);
+  msg.buf[1] = highByte(w);
+  // bytes 2-3: alarms (meaning of the bits unknown): 0
+  bmsCan.write(msg);
+  delay(2);
+}
+
 void VEcan() //communication with Victron system over CAN
 {
   msg.id  = 0x351;
@@ -2080,8 +2215,8 @@ void VEcan() //communication with Victron system over CAN
   msg.buf[3] = highByte(chargecurrent);
   msg.buf[4] = lowByte(discurrent );
   msg.buf[5] = highByte(discurrent);
-  msg.buf[6] = lowByte(uint16_t((settings.DischVsetpoint * settings.Scells) * 10));
-  msg.buf[7] = highByte(uint16_t((settings.DischVsetpoint * settings.Scells) * 10));
+  msg.buf[6] = lowByte(uint16_t((dischargeCellV() * settings.Scells) * 10));
+  msg.buf[7] = highByte(uint16_t((dischargeCellV() * settings.Scells) * 10));
   bmsCan.write(msg);
 
   msg.id  = 0x355;
@@ -2402,6 +2537,13 @@ void menu()
 
       case 'j': // JSON output over USB (Node-RED) on/off
         settings.JsonOut = !settings.JsonOut;
+        menuload = 1;
+        incomingByte = 'm';
+        break;
+
+      case 'p': // CAN protocol to the inverter: Victron <-> LG RESU LV (SolarEdge)
+        settings.InverterProto = settings.InverterProto ? 0 : 1;
+        canLogUsed = 0;
         menuload = 1;
         incomingByte = 'm';
         break;
@@ -3154,6 +3296,8 @@ case 'r':  //r for reset
         SERIALCONSOLE.println(settings.JsonOut ? "On" : "Off");
         SERIALCONSOLE.print("v - Victron CVL control (lower CVL 0.1V/s, CCL=0 only at OverV) : ");
         SERIALCONSOLE.println(settings.CVLControl ? "On" : "Off (old: CCL taper, fixed CVL)");
+        SERIALCONSOLE.print("p - CAN protocol to the inverter : ");
+        SERIALCONSOLE.println(settings.InverterProto ? "LG RESU LV (SolarEdge StorEdge RWS)" : "Victron");
         SERIALCONSOLE.print("o - Storage mode via input IN1 (CVL = StoreVsetpoint x Scells) : ");
         SERIALCONSOLE.println(settings.StorageInput ? "On" : "Off");
         SERIALCONSOLE.print("s - Scale CCL/DCL with strings online : ");
@@ -3623,6 +3767,22 @@ case 'r':  //r for reset
   // NEW: direct commands outside the menu (used by the Node-RED dashboard):
   //   'J' = JSON output on (and save), 'T' = back to text output (and save)
   //   'B<start>,<stop>' = balancing start / stop difference in mV (and save), e.g. "B7,3"
+  //   'P<n>' = CAN protocol to the inverter (and save): P0 = Victron, P1 = LG RESU LV (SolarEdge)
+  if (menuload == 0 && incomingByte == 'P')
+  {
+    long p = Serial.parseInt();
+    SERIALCONSOLE.println();
+    if (p == 0 || p == 1)
+    {
+      settings.InverterProto = (uint8_t)p;
+      canLogUsed = 0;
+      lgKeepAliveMs = 0;
+      EEPROM.put(0, settings);
+      SERIALCONSOLE.println(p ? "CAN protocol: LG RESU LV (SolarEdge) (saved)" : "CAN protocol: Victron (saved)");
+    }
+    else SERIALCONSOLE.println("CAN protocol: invalid value (P0 = Victron, P1 = LG RESU LV) - not changed");
+    jsonTimer = 0;
+  }
   if (menuload == 0 && incomingByte == 'B')
   {
     long bStart = Serial.parseInt();
@@ -3700,6 +3860,11 @@ int pgnFromCANId(int canId)
 void canread()
 {
   // inMsg has just been read by bmsCan.read() in loop()
+  if (settings.InverterProto == 1)
+  {
+    canLogAdd(inMsg);                       // what does the inverter send? (JSON "cx")
+    if (inMsg.id == 0x305 && !inMsg.ext) lgKeepAliveMs = millis();
+  }
   // Read data: len = data length, buf = data byte(s)
   if ( settings.cursens == Canbus)
   {
@@ -4081,7 +4246,7 @@ void currentlimit()
     {
       chargecurrent = 0;
     }
-    if (bms.getLowCellVolt() < settings.UnderVSetpoint || bms.getLowCellVolt() < settings.DischVsetpoint)
+    if (bms.getLowCellVolt() < settings.UnderVSetpoint || bms.getLowCellVolt() < dischargeCellV())
     {
       discurrent = 0;
     }
@@ -4098,9 +4263,9 @@ void currentlimit()
         discurrent = discurrent - map(bms.getHighTemperature(), settings.DisTSetpoint, settings.OverTSetpoint, 0, settings.discurrentmax);
       }
       //Voltagee based///
-      if (bms.getLowCellVolt() < (settings.DischVsetpoint + settings.DisTaper))
+      if (bms.getLowCellVolt() < (dischargeCellV() + settings.DisTaper))
       {
-        discurrent = discurrent - map(bms.getLowCellVolt(), settings.DischVsetpoint, (settings.DischVsetpoint + settings.DisTaper), settings.discurrentmax, 0);
+        discurrent = discurrent - map(bms.getLowCellVolt(), dischargeCellV(), (dischargeCellV() + settings.DisTaper), settings.discurrentmax, 0);
       }
     }
 

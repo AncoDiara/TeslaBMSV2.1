@@ -126,6 +126,23 @@ Modules are grouped into **strings** (modules in series), and the strings are co
 - can be switched off (old behaviour: fixed CVL, CCL taper): menu `m` → `v`
 - the status line in the serial monitor shows CVL, CCL and DCL
 
+### CAN protocol: Victron or LG RESU LV (SolarEdge StorEdge RWS)
+
+Menu `m` → `p`, the dashboard (*Maintenance* → *CAN protocol*, double click) or the direct command
+`P0` / `P1` choose what the BMS sends on CAN:
+
+- **Victron** (default): 0x351, 0x355, 0x356, 0x35A, 0x35E, 0x35F, 0x370–0x379.
+- **LG RESU LV** (for inverters that support the LG Chem RESU 3.3–13 low voltage batteries, e.g.
+  SolarEdge StorEdge SE5K–SE10K-RWS, 40–62 V): 0x351, 0x355, 0x356 and 0x359 (warnings in the LG
+  layout), CAN 500 kbit/s. Layout from the reverse engineered LG RESU 10 LV
+  ([jens18/lgresu](https://github.com/jens18/lgresu)); **not yet verified with a SolarEdge inverter**.
+  The lower end of the range (DCL = 0) is at least 41 V for the pack (the RWS stops below 40 V),
+  so use 12 cells in series (48 V). Everything the inverter sends is logged (JSON `cx`, max 16
+  identifiers, shown in the dashboard) together with its 'keep alive' 0x305 (`ka`).
+
+The BMS only allows or blocks charging/discharging (CCL/DCL, CVL); how much power is used is
+decided by the inverter (Victron ESS, or SolarEdge storage profile / meter / Modbus remote control).
+
 ### Storage mode (input IN1)
 
 The original SimpBMS has a *storage mode*: with input IN1 (key) high the CVL is limited to
