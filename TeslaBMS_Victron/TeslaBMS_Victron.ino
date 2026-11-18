@@ -107,6 +107,9 @@ uint8_t canLogUsed = 0;
 uint32_t lgKeepAliveMs = 0;   // last 0x305 'keep alive' from the inverter (LG RESU protocol)
 uint32_t lastCurrentMs = 0;   // last current measurement received over CAN (Lynx / shunt)
 bool socFromVoltage = false;  // SOC calculated from the cell voltage (no current measurement)
+float extSoc = -1.0f;         // SOC from outside over USB ('S' command, e.g. Lynx shunt on the GX via Node-RED)
+uint32_t extSocMs = 0;        // when it was received
+bool socExternal = false;     // SOC taken from extSoc
 
 void canLogAdd(const BmsCanMsg &m)
 {
@@ -1818,6 +1821,15 @@ void updateSOC() {
     ampsecond = (SOC * settings.CAP * settings.Pstrings * 10) / 0.27777777777778;
   }
 
+  // NEW: SOC from outside (Lynx/shunt on the GX, sent by Node-RED over USB) has priority while it is
+  // fresh (< 60 s); otherwise the own calculation above (coulomb count or cell voltage) is used.
+  socExternal = (extSoc >= 0.0f && extSocMs != 0 && millis() - extSocMs < 60000);
+  if (socExternal) {
+    SOC = (int)(extSoc + 0.5f);
+    ampsecond = (SOC * settings.CAP * settings.Pstrings * 10) / 0.27777777777778;
+    socFromVoltage = false;
+  }
+
   if (!socFromVoltage) { socVoltFiltered = (float)SOC; socVoltMs = millis(); }   // smooth hand-over if the current measurement drops out
 
   if (SOC >= 100) {
@@ -2086,6 +2098,7 @@ unsigned long canSlowTimer = 0;
     ip  CAN protocol to the inverter (0 Victron, 1 LG RESU LV for SolarEdge RWS)
     ka  LG protocol: seconds since the last 'keep alive' 0x305 of the inverter (-1 = never)
     cx  LG protocol: received CAN messages [id, ext, count, "last data hex"] (max 16 identifiers)
+    sx  1 = SOC (and current) from outside over USB ('S' command: Lynx/shunt on the GX via Node-RED)
     sv  1 = SOC calculated from the cell voltage (no current measurement for 30 s or set so)
     sm  storage mode (1 = CVL limited to StoreVsetpoint x Scells, via IN1 when switched on in menu m -> o)
     cvl/ccl/dcl  limits to Victron (V/A)    v pack voltage (V)   i current (A, + = charging)   soc (%)
@@ -2112,6 +2125,7 @@ void printJson()
   SERIALCONSOLE.print("\",\"st\":"); SERIALCONSOLE.print(bmsstatus);
   SERIALCONSOLE.print(",\"cvl\":"); jsonFloat(cvlActual, 2);
   SERIALCONSOLE.print(",\"sv\":"); SERIALCONSOLE.print(socFromVoltage ? 1 : 0);   // 1 = SOC from cell voltage (no current measurement)
+  SERIALCONSOLE.print(",\"sx\":"); SERIALCONSOLE.print(socExternal ? 1 : 0);      // 1 = SOC from outside (Lynx on the GX via Node-RED)
   SERIALCONSOLE.print(",\"sm\":"); SERIALCONSOLE.print(storagemode);   // 1 = storage mode (CVL = StoreVsetpoint x Scells)
   SERIALCONSOLE.print(",\"ip\":"); SERIALCONSOLE.print(settings.InverterProto);   // 0 Victron, 1 LG RESU LV (SolarEdge)
   {
@@ -3836,6 +3850,26 @@ case 'r':  //r for reset
   // NEW: direct commands outside the menu (used by the Node-RED dashboard):
   //   'J' = JSON output on (and save), 'T' = back to text output (and save)
   //   'B<start>,<stop>' = balancing start / stop difference in mV (and save), e.g. "B7,3"
+  //   'S<soc>,<current A>' = SOC (%) and battery current (A, + = charging) from outside, e.g. a Lynx shunt
+  //                          on the GX via Node-RED. Used while fresh (< 60 s). Not saved.
+  if (menuload == 0 && incomingByte == 'S')
+  {
+    float soc = Serial.parseFloat();
+    float amps = Serial.parseFloat();
+    if (soc >= 0.0f && soc <= 100.0f)
+    {
+      extSoc = soc;
+      extSocMs = millis();
+      // the current goes the same way as a Lynx on the CAN bus
+      lastCurrentMs = millis();
+      CANmilliamps = (signed long)(amps * 1000.0f);
+      if (settings.cursens == Canbus)
+      {
+        RawCur = CANmilliamps;
+        getcurrent();
+      }
+    }
+  }
   //   'P<n>' = CAN protocol to the inverter (and save): P0 = Victron, P1 = LG RESU LV (SolarEdge)
   if (menuload == 0 && incomingByte == 'P')
   {

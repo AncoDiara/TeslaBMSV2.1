@@ -166,6 +166,16 @@ working range 3.00 V = 0 % .. 4.10 V = 100 %, low-pass filtered (120 s). JSON `s
 shows "from cell voltage" in the SOC tile. When current arrives again, the coulomb count continues from
 that value. (Menu setting voltsoc = 1 keeps the old configurable line on the lowest cell.)
 
+### SOC from a shunt on the GX (Lynx Smart Shunt, SmartShunt, BMV)
+
+When the battery monitor is connected to the GX instead of the Teensy's CAN bus (e.g. the Teensy's
+CAN bus talks to a SolarEdge at 500 kbit/s, the Lynx needs VE.Can at 250 kbit/s), Node-RED sends its
+SOC and current to the Teensy every 10 s over USB: direct command `S<soc>,<current A>` (e.g.
+`S76.4,-12.4`). The Teensy uses that SOC while it is fresh (< 60 s); the current goes the same way as a
+Lynx on the CAN bus (current tile, 0x356). Without it: own SOC (coulomb count or cell voltage).
+JSON `sx` = 1, the dashboard shows "from shunt (GX)". Tab variable `TESLABMS_SOC_SOURCE`: `auto`
+(first battery service named Lynx / Shunt / BMV, default), `off`, or an exact dbus service name.
+
 ## Balancing
 
 Passive (bleed resistors in the Tesla module), per string, per cell:
