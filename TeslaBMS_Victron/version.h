@@ -11,4 +11,4 @@
   The GitHub workflow refuses a push that changes the firmware without raising FW_BUILD.
 */
 #define FW_YEAR   26   // year of the commit (2026)
-#define FW_BUILD 31   // firmware build number (raise with every firmware change)
+#define FW_BUILD 32   // firmware build number (raise with every firmware change)

@@ -157,6 +157,15 @@ in the menu (`m` → `o`, default **off**): on a board where IN1 is not wired, a
 input could otherwise lower the CVL of a full battery to 3.80 V per cell. When it is active, the
 JSON field `sm` is 1 and the dashboard shows it in the CVL tile.
 
+### SOC without a current measurement
+
+With the current sensor set to CAN (Lynx/shunt) but no measurement received for 30 s (e.g. a battery on
+a SolarEdge inverter without a Lynx on the bus), the coulomb count would freeze. The SOC is then taken
+from the **average cell voltage** with the open circuit voltage curve of Tesla NCA cells, scaled to the
+working range 3.00 V = 0 % .. 4.10 V = 100 %, low-pass filtered (120 s). JSON `sv` = 1, the dashboard
+shows "from cell voltage" in the SOC tile. When current arrives again, the coulomb count continues from
+that value. (Menu setting voltsoc = 1 keeps the old configurable line on the lowest cell.)
+
 ## Balancing
 
 Passive (bleed resistors in the Tesla module), per string, per cell:

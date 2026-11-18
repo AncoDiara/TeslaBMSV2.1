@@ -1730,6 +1730,29 @@ void getcurrent()
 }
 
 
+/*
+  NEW: SOC from the cell voltage when there is no current measurement (e.g. no Lynx shunt).
+  Open circuit voltage curve of Tesla NCA cells, scaled to the working range
+  3.00 V (0 %) .. 4.10 V (100 %), on the AVERAGE cell voltage, low-pass filtered
+  (time constant 120 s) so that short load dips do not make the SOC jump.
+*/
+static const float ocvV[]   = {3.00f, 3.30f, 3.45f, 3.55f, 3.62f, 3.68f, 3.75f, 3.83f, 3.91f, 3.98f, 4.06f, 4.10f};
+static const float ocvSoc[] = {0.0f,  4.0f,  9.0f, 19.0f, 29.0f, 40.0f, 51.0f, 62.0f, 73.0f, 83.0f, 94.0f, 100.0f};
+float socVoltFiltered = -1.0f;
+uint32_t socVoltMs = 0;
+
+float socFromOcv(float v)
+{
+  const int n = sizeof(ocvV) / sizeof(ocvV[0]);
+  if (v <= ocvV[0]) return 0.0f;
+  if (v >= ocvV[n - 1]) return 100.0f;
+  for (int i = 1; i < n; i++)
+  {
+    if (v < ocvV[i]) return ocvSoc[i - 1] + (ocvSoc[i] - ocvSoc[i - 1]) * (v - ocvV[i - 1]) / (ocvV[i] - ocvV[i - 1]);
+  }
+  return 100.0f;
+}
+
 void updateSOC() {
    if (SOCreset == 1) {
     SOC = map(uint16_t(bms.getLowCellVolt() * 1000), settings.socvolt[0], settings.socvolt[2], settings.socvolt[1], settings.socvolt[3]);
@@ -1773,11 +1796,29 @@ void updateSOC() {
   // the coulomb count would freeze, so take the SOC from the cell voltage instead.
   socFromVoltage = (settings.voltsoc == 1 || settings.cursens == 0 ||
                     (settings.cursens == Canbus && (lastCurrentMs == 0 || millis() - lastCurrentMs > 30000)));
-  if (socFromVoltage) {
+  if (socFromVoltage && settings.voltsoc != 1 && bms.getStringsOnline() > 0) {
+    // no current measurement: OCV curve on the average cell voltage, filtered
+    float target = socFromOcv(bms.getAvgCellVolt());
+    uint32_t now = millis();
+    if (socVoltFiltered < 0.0f) socVoltFiltered = target;
+    else
+    {
+      float dt = (now - socVoltMs) / 1000.0f;
+      if (dt > 10.0f) dt = 10.0f;
+      socVoltFiltered += (target - socVoltFiltered) * (dt / 120.0f);
+    }
+    socVoltMs = now;
+    SOC = (int)(socVoltFiltered + 0.5f);
+    ampsecond = (SOC * settings.CAP * settings.Pstrings * 10) / 0.27777777777778;
+  }
+  else if (socFromVoltage) {
+    // explicitly set to voltage SOC (menu): the configured socvolt line on the lowest cell, as before
     SOC = map(uint16_t(bms.getLowCellVolt() * 1000), settings.socvolt[0], settings.socvolt[2], settings.socvolt[1], settings.socvolt[3]);
 
     ampsecond = (SOC * settings.CAP * settings.Pstrings * 10) / 0.27777777777778;
   }
+
+  if (!socFromVoltage) { socVoltFiltered = (float)SOC; socVoltMs = millis(); }   // smooth hand-over if the current measurement drops out
 
   if (SOC >= 100) {
     ampsecond = (settings.CAP * settings.Pstrings * 1000) / 0.27777777777778;  //reset to full, dependant on given capacity. Need to improve with auto correction for capcity.
