@@ -74,6 +74,11 @@ energy meter as the only grid meter. Node-RED on the GX coordinates both:
 - the SolarEdge takes the set **share** of T: discharge (command mode 4, discharge limit) or charge from its
   own solar (mode 2, charge limit); Victron ESS regulates the rest to zero. **Both batteries always charge
   together or discharge together**, never one against the other (that would only cost conversion losses);
+- split (setting): **fixed share**, or **same SOC**: the share follows the capacities of both batteries
+  (e.g. 30 and 120 kWh -> 80 %) and shifts with the SOC difference (10 % difference = 20 % points), so the
+  fuller battery discharges more / charges less until both have the same state of charge, then they go on
+  together. SOC of system 1 from the GX (dbus or MQTT), SOC of the SolarEdge battery from the inverter;
+  without both: capacity share;
 - every command has a timeout of 60 s; if Node-RED stops, the inverter falls back to "charge from solar";
 - settings on the dashboard page **SolarEdge** (inverter IP, on/off, share, max charge/discharge), saved in
   `teslabms-solaredge.json` in the Node-RED folder. With control off it only shows the status.
