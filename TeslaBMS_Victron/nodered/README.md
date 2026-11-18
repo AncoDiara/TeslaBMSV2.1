@@ -61,6 +61,26 @@ Which Teensy is which:
 Firmware updates always flash exactly the Teensy of that tab (`teensy_flash.py --port ...`), and
 never two at the same time.
 
+## SolarEdge (tab *SolarEdge*): two battery systems behind one grid meter
+For a SolarEdge StorEdge inverter (e.g. SE10K-RWS) next to the Victron system, with the Victron
+energy meter as the only grid meter. Node-RED on the GX coordinates both:
+
+- every 5 s: grid power (L1+L2+L3) and Victron battery power from `com.victronenergy.system`,
+  SolarEdge battery power over Modbus TCP;
+- **T = grid − Victron battery − SolarEdge battery** (battery power + = charging) is what all storage
+  together has to deliver (T > 0) or may absorb (T < 0);
+- the SolarEdge takes the set **share** of T: discharge (command mode 4, discharge limit) or charge from its
+  own solar (mode 2, charge limit); Victron ESS regulates the rest to zero. **Both batteries always charge
+  together or discharge together**, never one against the other (that would only cost conversion losses);
+- every command has a timeout of 60 s; if Node-RED stops, the inverter falls back to "charge from solar";
+- settings on the dashboard page **SolarEdge** (inverter IP, on/off, share, max charge/discharge), saved in
+  `teslabms-solaredge.json` in the Node-RED folder. With control off it only shows the status.
+
+Needed: Modbus TCP enabled on the inverter (SetApp → Site Communication → Modbus TCP, port 1502), the
+Tesla battery on the SolarEdge with the LG RESU LV CAN protocol (see the firmware README). Script:
+`solaredge_ctl.py` (pure Python, fetched with the update scripts; also usable by hand:
+`python3 /data/teslabms/solaredge_ctl.py --host <ip> status`).
+
 ## Power
 In this setup the Teensy is powered only from USB: the BMS runs as long as the GX is on.
 When the GX restarts the Teensy restarts as well and counts the modules again.

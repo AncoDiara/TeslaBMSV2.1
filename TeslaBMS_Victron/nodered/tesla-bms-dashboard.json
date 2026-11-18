@@ -7,7 +7,7 @@
     "env": [
       {
         "name": "TESLABMS_FLOW_VERSION",
-        "value": "v26.28",
+        "value": "v26.29",
         "type": "str"
       }
     ],
@@ -541,7 +541,7 @@
     "type": "exec",
     "z": "5fce40a6fa720026",
     "name": "check versions",
-    "command": "D=/data/teslabms; mkdir -p $D 2>/dev/null; [ -w $D ] || { D=${HOME:-/data/home/nodered}/teslabms; mkdir -p $D; }; cd $D && echo \"DIR=$D\" && python3 -c \"\nimport urllib.request, os\nfor f in ('teensy_flash.py', 'flow_update.py'):\n    u = 'https://github.com/AncoDiara/TeslaBMSV2.1/releases/latest/download/' + f\n    try:\n        d = urllib.request.urlopen(urllib.request.Request(u, headers={'User-Agent': 'teslabms'}), timeout=30).read()\n        open(f + '.tmp', 'wb').write(d); os.replace(f + '.tmp', f)\n    except Exception as e:\n        print('DL-ERROR', f, e)\n\"; echo \"FW=$(python3 teensy_flash.py --check --no-serial 2>/dev/null)\"; echo \"FLOW=$(python3 flow_update.py --check 2>/dev/null)\"",
+    "command": "D=/data/teslabms; mkdir -p $D 2>/dev/null; [ -w $D ] || { D=${HOME:-/data/home/nodered}/teslabms; mkdir -p $D; }; cd $D && echo \"DIR=$D\" && python3 -c \"\nimport urllib.request, os\nfor f in ('teensy_flash.py', 'flow_update.py', 'solaredge_ctl.py'):\n    u = 'https://github.com/AncoDiara/TeslaBMSV2.1/releases/latest/download/' + f\n    try:\n        d = urllib.request.urlopen(urllib.request.Request(u, headers={'User-Agent': 'teslabms'}), timeout=30).read()\n        open(f + '.tmp', 'wb').write(d); os.replace(f + '.tmp', f)\n    except Exception as e:\n        print('DL-ERROR', f, e)\n\"; echo \"FW=$(python3 teensy_flash.py --check --no-serial 2>/dev/null)\"; echo \"FLOW=$(python3 flow_update.py --check 2>/dev/null)\"",
     "addpay": "",
     "append": "",
     "useSpawn": "false",
@@ -1526,6 +1526,313 @@
     "wires": [
       [
         "815dcd0a3e2b0f04"
+      ]
+    ]
+  },
+  {
+    "id": "144e61c5c165398e",
+    "type": "tab",
+    "label": "SolarEdge",
+    "disabled": false,
+    "info": "Controls a SolarEdge StorEdge inverter (e.g. SE10K-RWS with the Tesla battery via the LG RESU LV CAN protocol) over Modbus TCP, so that it helps the Victron ESS to keep the grid at zero.\n\nGrid power and Victron battery power come from the GX (com.victronenergy.system, Victron energy meter). The SolarEdge takes a share of the total storage demand; Victron ESS regulates the rest to zero.\nSettings on the dashboard page 'SolarEdge', saved in /data/home/nodered/.node-red/teslabms-solaredge.json.\nScript: solaredge_ctl.py (fetched with the update scripts)."
+  },
+  {
+    "id": "bc09410497b78fe7",
+    "type": "ui-page",
+    "name": "SolarEdge",
+    "ui": "8c8514df217ca0c9",
+    "path": "/solaredge",
+    "icon": "solar-power",
+    "layout": "grid",
+    "theme": "6168e01a90f0542a",
+    "order": 3,
+    "className": "",
+    "visible": "true",
+    "disabled": "false",
+    "breakpoints": [
+      {
+        "name": "Default",
+        "px": "0",
+        "cols": "3"
+      },
+      {
+        "name": "Tablet",
+        "px": "576",
+        "cols": "6"
+      },
+      {
+        "name": "Small Desktop",
+        "px": "768",
+        "cols": "9"
+      },
+      {
+        "name": "Desktop",
+        "px": "1024",
+        "cols": "12"
+      }
+    ]
+  },
+  {
+    "id": "6d6c696514bf59a2",
+    "type": "ui-group",
+    "name": "SolarEdge",
+    "page": "bc09410497b78fe7",
+    "width": "12",
+    "height": "1",
+    "order": 1,
+    "showTitle": false,
+    "className": "",
+    "visible": "true",
+    "disabled": "false",
+    "groupType": "default"
+  },
+  {
+    "id": "757171172aef03d7",
+    "type": "comment",
+    "z": "144e61c5c165398e",
+    "name": "Every 5 s: grid + Victron battery from the GX -> controller -> solaredge_ctl.py (Modbus TCP)",
+    "x": 330,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "96993715530ed0de",
+    "type": "inject",
+    "z": "144e61c5c165398e",
+    "name": "every 5 s",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "5",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "15",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 120,
+    "y": 100,
+    "wires": [
+      [
+        "2cd79a43c9aca60d"
+      ]
+    ]
+  },
+  {
+    "id": "2cd79a43c9aca60d",
+    "type": "exec",
+    "z": "144e61c5c165398e",
+    "name": "grid + Victron battery (dbus)",
+    "command": "for p in /Ac/Grid/L1/Power /Ac/Grid/L2/Power /Ac/Grid/L3/Power /Dc/Battery/Power; do echo \"$p=$(dbus -y com.victronenergy.system $p GetValue 2>/dev/null)\"; done",
+    "addpay": "",
+    "append": "",
+    "useSpawn": "false",
+    "timer": "4",
+    "winHide": false,
+    "oldrc": false,
+    "x": 320,
+    "y": 100,
+    "wires": [
+      [
+        "9cf13cb388fbc2a0"
+      ],
+      [],
+      []
+    ]
+  },
+  {
+    "id": "9cf13cb388fbc2a0",
+    "type": "function",
+    "z": "144e61c5c165398e",
+    "name": "SolarEdge controller",
+    "outputs": 2,
+    "outputLabels": [
+      "command to solaredge_ctl.py",
+      "dashboard"
+    ],
+    "func": "// Lets the SolarEdge battery work TOGETHER with the Victron ESS behind one grid meter.\n//   T = grid power - Victron battery power - SolarEdge battery power   (W; battery power + = charging)\n//     = what all storage together has to deliver (T > 0) or may absorb (T < 0).\n// Both batteries always go the same way, shared by 'share': never one charging while the other\n// discharges (that would only cost conversion losses).\n//   T >  150 W: SolarEdge discharges share% of T (mode 4, discharge limit)\n//   T < -150 W: SolarEdge charges share% of the surplus from its own solar (mode 2, charge limit)\n//   between:    SolarEdge battery idle (mode 2, charge limit 0), its solar power feeds the house/grid\n// Victron ESS regulates the rest to zero. The SolarEdge's own battery power is part of T, so the two\n// controllers do not fight. Every command has a timeout (60 s): if Node-RED stops, the inverter\n// falls back to its default mode 2 (charge from solar). The BMS limits (CCL/DCL over CAN) always apply.\nconst se = flow.get('se') || {};\nconst now = Date.now();\nconst out = String(msg.payload || '');\nconst val = (p) => { const m = out.match(new RegExp('^' + p.replace(/\\//g, '\\\\/') + '=(-?[0-9.]+)', 'm')); return m ? Number(m[1]) : null; };\nconst l1 = val('/Ac/Grid/L1/Power'), l2 = val('/Ac/Grid/L2/Power'), l3 = val('/Ac/Grid/L3/Power');\nconst grid = (l1 === null && l2 === null && l3 === null) ? null : (l1 || 0) + (l2 || 0) + (l3 || 0);\nconst vb = val('/Dc/Battery/Power');\nconst st = flow.get('seStatus') || {};\nconst seFresh = st.ok && (now - (st._ts || 0)) < 30000;\nlet sb = seFresh ? (st.bat_p || 0) : 0;\nif (se.signInvert) sb = -sb;           // setting: SolarEdge reports + = discharging\nlet T = (grid === null) ? null : grid - (vb || 0) - sb;\n// smoothing\nlet Tf = context.get('Tf');\nif (T !== null) { Tf = (Tf === undefined || Tf === null) ? T : Tf + 0.5 * (T - Tf); context.set('Tf', Tf); }\n\nconst share = Math.max(0, Math.min(100, Number(se.share ?? 50)));\nconst maxDis = Math.max(0, Number(se.maxDischarge ?? 5000));\nconst maxChg = Math.max(0, Number(se.maxCharge ?? 5000));\nlet mode = context.get('mode') || 2;\nlet state = context.get('state') || 'idle';      // 'dis' / 'chg' / 'idle' (hysteresis)\nlet dis = 0, chg = 0, why;\nif (!se.enabled || !se.host) {\n    why = !se.host ? 'no inverter IP set' : 'control off (monitoring only)';\n    mode = null;\n} else if (grid === null) {\n    mode = 2; chg = 0; state = 'idle';\n    why = 'no grid measurement from the GX: SolarEdge battery idle';\n} else {\n    if (state === 'dis' ? Tf > 50 : Tf > 150) state = 'dis';\n    else if (state === 'chg' ? Tf < -50 : Tf < -150) state = 'chg';\n    else state = 'idle';\n    if (state === 'dis') {\n        mode = 4;\n        dis = Math.min(maxDis, Math.round(share / 100 * Tf / 50) * 50);\n        why = `storage demand ${Math.round(Tf)} W: SolarEdge discharges ${share}% = ${dis} W, Victron the rest`;\n    } else if (state === 'chg') {\n        mode = 2;\n        chg = Math.min(maxChg, Math.round(share / 100 * -Tf / 50) * 50);\n        why = `surplus ${Math.round(-Tf)} W: SolarEdge charges ${share}% = ${chg} W from its solar, Victron the rest`;\n    } else {\n        mode = 2; chg = 0;\n        why = `no demand/surplus worth sharing (${Math.round(Tf)} W): SolarEdge battery idle`;\n    }\n}\ncontext.set('state', state);\ncontext.set('mode', mode || 2);\n\n// command: when it changes, and at least every 30 s (timeout 60 s)\nlet cmd = null;\nif (se.host) {\n    const hostArg = '--host ' + String(se.host).replace(/[^0-9A-Za-z.\\-:]/g, '');\n    if (mode === null) {\n        cmd = hostArg + ' status';\n    } else {\n        cmd = hostArg + ' set --timeout 60 --default 2 --mode ' + mode +\n              (mode === 4 ? ' --discharge ' + dis : ' --charge ' + chg);\n    }\n    const last = context.get('last') || {};\n    const busy = flow.get('seBusy') || 0;\n    if (now - busy < 10000) cmd = null;                       // previous call still running\n    else if (cmd === last.cmd && now - last.at < 30000 && mode !== null) cmd = null;\n    else if (mode === null && now - (last.at || 0) < 15000) cmd = null;   // monitoring: every 15 s\n    if (cmd) { context.set('last', { cmd: cmd, at: now }); flow.set('seBusy', now); }\n}\nconst ui = { kind: 'ctl', grid: grid, vb: vb, sb: seFresh ? sb : null, T: T === null ? null : Math.round(Tf),\n             mode: mode, dis: dis, chg: chg, why: why, ts: now };\nnode.status({ fill: mode === 4 ? 'yellow' : (mode === 2 ? 'green' : 'grey'), shape: 'dot',\n              text: (grid === null ? 'grid ?' : 'grid ' + grid + ' W') + '  T ' + (T === null ? '?' : Math.round(Tf)) + ' W  ' + (mode === null ? 'off' : 'mode ' + mode + (mode === 4 ? ' ' + dis + ' W' : '')) });\nreturn [cmd ? { payload: cmd } : null, { payload: ui }];\n",
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 100,
+    "wires": [
+      [
+        "8931e160aeedb9c3"
+      ],
+      [
+        "9087b88579524275"
+      ]
+    ]
+  },
+  {
+    "id": "8931e160aeedb9c3",
+    "type": "exec",
+    "z": "144e61c5c165398e",
+    "name": "solaredge_ctl.py",
+    "command": "D=/data/teslabms; [ -w $D ] || D=${HOME:-/data/home/nodered}/teslabms; python3 $D/solaredge_ctl.py",
+    "addpay": "payload",
+    "append": "",
+    "useSpawn": "false",
+    "timer": "10",
+    "winHide": false,
+    "oldrc": false,
+    "x": 750,
+    "y": 100,
+    "wires": [
+      [
+        "ba2a7284c96bed01"
+      ],
+      [
+        "ba2a7284c96bed01"
+      ],
+      []
+    ]
+  },
+  {
+    "id": "ba2a7284c96bed01",
+    "type": "function",
+    "z": "144e61c5c165398e",
+    "name": "SolarEdge status",
+    "outputs": 1,
+    "func": "// Result of solaredge_ctl.py: one JSON line (status of inverter and battery, or an error).\nflow.set('seBusy', 0);\nconst txt = String(msg.payload || '').trim();\nif (!txt) return null;\nlet s;\ntry { s = JSON.parse(txt.split('\\n').pop()); } catch (e) { s = { ok: false, error: txt.slice(0, 200) }; }\ns._ts = Date.now();\nflow.set('seStatus', s);\nnode.status({ fill: s.ok ? 'green' : 'red', shape: 'dot', text: s.ok ? ('mode ' + s.command_mode + '  SOE ' + s.bat_soe + '%  bat ' + s.bat_p + ' W') : s.error });\nreturn { payload: { kind: 'status', status: s } };\n",
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 950,
+    "y": 100,
+    "wires": [
+      [
+        "9087b88579524275"
+      ]
+    ]
+  },
+  {
+    "id": "09199caf93004704",
+    "type": "function",
+    "z": "144e61c5c165398e",
+    "name": "SolarEdge settings",
+    "outputs": 2,
+    "outputLabels": [
+      "save",
+      "dashboard"
+    ],
+    "func": "// Settings from the dashboard page (or the file at start): { enabled, host, share, maxCharge, maxDischarge, signInvert }\nlet s = msg.payload;\nif (typeof s === 'string') { try { s = JSON.parse(s); } catch (e) { return null; } }\nif (!s || typeof s !== 'object') return null;\nconst c = {\n    enabled: !!s.enabled,\n    host: String(s.host || '').trim(),\n    share: Math.max(0, Math.min(100, Math.round(Number(s.share ?? 50)))),\n    maxCharge: Math.max(0, Math.min(10000, Math.round(Number(s.maxCharge ?? 5000)))),\n    maxDischarge: Math.max(0, Math.min(10000, Math.round(Number(s.maxDischarge ?? 5000)))),\n    signInvert: !!s.signInvert\n};\nflow.set('se', c);\nnode.status({ fill: c.enabled ? 'green' : 'grey', shape: 'dot', text: (c.enabled ? 'on ' : 'off ') + (c.host || 'no IP') + ' share ' + c.share + '%' });\nconst save = msg.topic === 'loaded' ? null : { payload: JSON.stringify(c) };\nreturn [save, { payload: { kind: 'settings', settings: c } }];\n",
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 220,
+    "wires": [
+      [
+        "157af91c113bce6f"
+      ],
+      [
+        "9087b88579524275"
+      ]
+    ]
+  },
+  {
+    "id": "8f4fd19585a2ffc5",
+    "type": "comment",
+    "z": "144e61c5c165398e",
+    "name": "Settings: dashboard page SolarEdge, saved in a file",
+    "x": 270,
+    "y": 180,
+    "wires": []
+  },
+  {
+    "id": "f1c181bb5ead40c0",
+    "type": "inject",
+    "z": "144e61c5c165398e",
+    "name": "load settings at start",
+    "props": [
+      {
+        "p": "topic",
+        "vt": "str"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "1",
+    "topic": "loaded",
+    "x": 150,
+    "y": 260,
+    "wires": [
+      [
+        "241983784f1a22db"
+      ]
+    ]
+  },
+  {
+    "id": "241983784f1a22db",
+    "type": "file in",
+    "z": "144e61c5c165398e",
+    "name": "load settings",
+    "filename": "/data/home/nodered/.node-red/teslabms-solaredge.json",
+    "filenameType": "str",
+    "format": "utf8",
+    "chunk": false,
+    "sendError": false,
+    "encoding": "none",
+    "allProps": false,
+    "x": 340,
+    "y": 260,
+    "wires": [
+      [
+        "09199caf93004704"
+      ]
+    ]
+  },
+  {
+    "id": "157af91c113bce6f",
+    "type": "file",
+    "z": "144e61c5c165398e",
+    "name": "save settings",
+    "filename": "/data/home/nodered/.node-red/teslabms-solaredge.json",
+    "filenameType": "str",
+    "appendNewline": false,
+    "createDir": true,
+    "overwriteFile": "true",
+    "encoding": "none",
+    "x": 760,
+    "y": 220,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "9087b88579524275",
+    "type": "ui-template",
+    "z": "144e61c5c165398e",
+    "group": "6d6c696514bf59a2",
+    "page": "",
+    "ui": "",
+    "name": "SolarEdge control",
+    "order": 1,
+    "width": "12",
+    "height": "0",
+    "head": "",
+    "format": "<template>\n  <div class=\"se\">\n    <div class=\"hdr\"><span class=\"title\">SolarEdge</span>\n      <span :class=\"['state', modeCls]\">{{ modeText }}</span>\n    </div>\n    <div class=\"tiles\">\n      <div class=\"tile\"><div class=\"lbl\">Grid (Victron meter)</div><div class=\"val\">{{ w(c.grid) }}</div><div class=\"sub\">+ = import</div></div>\n      <div class=\"tile\"><div class=\"lbl\">Victron battery</div><div class=\"val\">{{ w(c.vb) }}</div><div class=\"sub\">+ = charging</div></div>\n      <div class=\"tile\"><div class=\"lbl\">SolarEdge battery</div><div class=\"val\">{{ w(s.bat_p) }}</div><div class=\"sub\">SOE {{ n(s.bat_soe, 1) }} % &middot; {{ s.bat_status_text || '-' }}</div></div>\n      <div class=\"tile\"><div class=\"lbl\">Storage demand</div><div class=\"val\">{{ w(c.T) }}</div><div class=\"sub\">+ = to be delivered</div></div>\n      <div class=\"tile\"><div class=\"lbl\">SolarEdge AC</div><div class=\"val\">{{ w(s.inv_ac_p) }}</div><div class=\"sub\">{{ s.inv_status_text || '-' }}</div></div>\n      <div class=\"tile\"><div class=\"lbl\">Command</div><div class=\"val sm\">{{ cmdText }}</div><div class=\"sub\">inverter: mode {{ s.command_mode ?? '-' }}, control {{ s.control_mode ?? '-' }}</div></div>\n    </div>\n    <div class=\"why\">{{ c.why || '' }}</div>\n    <div v-if=\"s.ok === false\" class=\"err\">Inverter: {{ s.error }}</div>\n    <div v-if=\"s.bat_error\" class=\"err\">Battery registers: {{ s.bat_error }}</div>\n\n    <div class=\"form\">\n      <label><input type=\"checkbox\" v-model=\"f.enabled\"> control on</label>\n      <label>inverter IP <input type=\"text\" v-model=\"f.host\" placeholder=\"192.168.x.x\" class=\"ip\"></label>\n      <label>share <input type=\"number\" v-model.number=\"f.share\" min=\"0\" max=\"100\"> %</label>\n      <label>max discharge <input type=\"number\" v-model.number=\"f.maxDischarge\" min=\"0\" max=\"10000\" step=\"100\"> W</label>\n      <label>max charge <input type=\"number\" v-model.number=\"f.maxCharge\" min=\"0\" max=\"10000\" step=\"100\"> W</label>\n      <label><input type=\"checkbox\" v-model=\"f.signInvert\"> SolarEdge battery power: + = discharging</label>\n      <button @click=\"save\">Save</button>\n      <span class=\"dim\">{{ saved }}</span>\n    </div>\n    <div class=\"hint\">\n      Victron ESS keeps the grid at zero; the SolarEdge takes the set share of the total storage demand or surplus\n      (grid + Victron battery + SolarEdge battery). Both batteries always charge together or discharge together,\n      never one against the other. The SolarEdge charges only from its own solar; when its battery is full\n      the solar power goes to the house/grid. Commands time out after 60 s (fallback: charge from solar).\n      Enable Modbus TCP on the inverter first (SetApp: Site Communication &rarr; Modbus TCP, port 1502).\n      Check the sign of the SolarEdge battery power once (charging must show +).\n    </div>\n  </div>\n</template>\n\n<script>\nexport default {\n  data() {\n    return { c: {}, s: {}, f: { enabled: false, host: '', share: 50, maxCharge: 5000, maxDischarge: 5000, signInvert: false }, saved: '' }\n  },\n  watch: {\n    msg: {\n      handler(m) {\n        if (!m || !m.payload) return\n        const p = m.payload\n        if (p.kind === 'ctl') this.c = p\n        if (p.kind === 'status') this.s = p.status || {}\n        if (p.kind === 'settings') { this.f = Object.assign({}, this.f, p.settings); this.saved = '' }\n      },\n      immediate: true\n    }\n  },\n  computed: {\n    modeText() {\n      if (this.c.mode === 4) return 'discharging ' + this.c.dis + ' W'\n      if (this.c.mode === 2) return this.c.chg ? 'charging ' + this.c.chg + ' W' : 'battery idle'\n      return 'control off'\n    },\n    modeCls() { return this.c.mode === 4 ? 'warn' : (this.c.mode === 2 ? 'ok' : '') },\n    cmdText() {\n      if (this.c.mode === 4) return 'discharge ' + this.c.dis + ' W'\n      if (this.c.mode === 2) return this.c.chg ? 'charge ' + this.c.chg + ' W from solar' : 'idle (solar to house/grid)'\n      return '-'\n    }\n  },\n  methods: {\n    w(v) { return (v === null || v === undefined || isNaN(v)) ? '-' : Math.round(v) + ' W' },\n    n(v, d) { return (v === null || v === undefined || isNaN(v)) ? '-' : Number(v).toFixed(d) },\n    save() {\n      this.send({ topic: 'settings', payload: Object.assign({}, this.f) })\n      this.saved = 'saved'\n    }\n  }\n}\n</script>\n\n<style scoped>\n.se { width: 100%; }\n.hdr { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }\n.title { font-size: 1.25em; font-weight: 600; }\n.state { margin-left: auto; padding: 3px 10px; border-radius: 12px; font-weight: 600; font-size: 0.9em; background: rgba(127,127,127,0.12); }\n.state.ok { background: rgba(46, 160, 67, 0.18); color: #2ea043; }\n.state.warn { background: rgba(210, 153, 34, 0.2); color: #b7791f; }\n.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-bottom: 8px; }\n.tile { background: rgba(127, 127, 127, 0.09); border-radius: 8px; padding: 8px 10px; }\n.lbl { font-size: 0.75em; opacity: 0.65; text-transform: uppercase; letter-spacing: 0.03em; }\n.val { font-size: 1.35em; font-weight: 600; font-variant-numeric: tabular-nums; }\n.val.sm { font-size: 1em; }\n.sub { font-size: 0.8em; opacity: 0.7; }\n.why { margin: 4px 0 8px; opacity: 0.8; }\n.err { color: #da3633; margin: 4px 0; }\n.form { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 10px 0; }\n.form input[type=number] { width: 5.5em; }\n.form input.ip { width: 9em; }\n.form input[type=number], .form input.ip { padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(127,127,127,0.4); background: transparent; color: inherit; font: inherit; }\n.form button { padding: 5px 14px; border-radius: 6px; border: 1px solid rgba(127,127,127,0.4); background: rgba(127,127,127,0.08); cursor: pointer; font: inherit; color: inherit; }\n.dim { opacity: 0.6; font-size: 0.85em; }\n.hint { font-size: 0.8em; opacity: 0.65; }\n</style>\n",
+    "storeOutMessages": true,
+    "passthru": false,
+    "resendOnRefresh": true,
+    "templateScope": "local",
+    "className": "",
+    "x": 1150,
+    "y": 160,
+    "wires": [
+      [
+        "09199caf93004704"
       ]
     ]
   }

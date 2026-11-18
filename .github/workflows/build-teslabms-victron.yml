@@ -97,7 +97,7 @@ jobs:
           # Teensy 4.0: own name, sorts after the 3.2 file
           cp build/t40/TeslaBMS_Victron.ino.hex "release/TeslaBMS_Victron_T40-$FW.hex"
           # Cerbo tools and the Node-RED flow, so the dashboard can update itself
-          cp TeslaBMS_Victron/cerbo/teensy_flash.py TeslaBMS_Victron/cerbo/flow_update.py release/
+          cp TeslaBMS_Victron/cerbo/teensy_flash.py TeslaBMS_Victron/cerbo/flow_update.py TeslaBMS_Victron/cerbo/solaredge_ctl.py release/
           cp TeslaBMS_Victron/nodered/tesla-bms-dashboard.json release/
           echo "{\"fw\": \"$FW\", \"flow\": \"$FLOW\", \"boards\": [\"T32\", \"T40\"], \"commit\": \"${GITHUB_SHA::7}\"}" > release/versions.json
           cd release
