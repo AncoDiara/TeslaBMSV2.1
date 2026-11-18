@@ -69,6 +69,8 @@ energy meter as the only grid meter. Node-RED on the GX coordinates both:
   or from **another GX over MQTT** (setting *grid + battery of*: that GX has the grid meter; enable
   *MQTT on LAN (insecure)* on it, port 1883; the portal ID is found automatically and a keep alive is sent
   every 30 s), and the SolarEdge battery power over Modbus TCP;
+  the tab variable `SOLAREDGE_GRID_GX` (now `192.168.1.10`) is the default IP of that GX as long as no
+  settings were saved on the page (empty = this GX);
 - **T = grid − Victron battery − SolarEdge battery** (battery power + = charging) is what all storage
   together has to deliver (T > 0) or may absorb (T < 0);
 - the SolarEdge takes the set **share** of T: discharge (command mode 4, discharge limit) or charge from its
