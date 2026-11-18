@@ -19,9 +19,23 @@ struct BmsCanMsg
   uint8_t  ext;   // 1 = 29-bit identifier
 };
 
+// CAN bus health (FlexCAN registers ECR / ESR1, same layout on Teensy 3.2 and 4.x)
+struct BmsCanStats
+{
+  uint32_t txOk, txFail;   // messages accepted for sending / refused (no free mailbox)
+  uint32_t rx, rxLost;     // received / lost (receive buffer full, Teensy 4.x)
+  uint8_t tec, rec;        // transmit / receive error counter
+  uint8_t state;           // 0 error active (OK), 1 error passive, 2 bus off
+  uint16_t errFlags;       // ESR1 error bits seen since the last stats(.., true): bit 8 RXWRN, 9 TXWRN,
+                           // 10 stuff, 11 form, 12 CRC, 13 ACK, 14 bit0, 15 bit1
+  uint32_t errEvents;      // number of polls that saw an error since the last reset
+};
+
 class BmsCan
 {
 public:
+  void poll();                          // read the error registers (call often, e.g. every loop)
+  void stats(BmsCanStats &s, bool resetFlags);
   void begin(uint32_t baud);          // also used to change the speed
   void end();
   bool read(BmsCanMsg &m);            // true = a message was read

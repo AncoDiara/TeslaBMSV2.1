@@ -140,6 +140,12 @@ Menu `m` → `p`, the dashboard (*Maintenance* → *CAN protocol*, double click)
   so use 12 cells in series (48 V). Everything the inverter sends is logged (JSON `cx`, max 16
   identifiers, shown in the dashboard) together with its 'keep alive' 0x305 (`ka`).
 
+**CAN bus health** (JSON `cb`, panel *CAN bus* in the dashboard, both protocols): state of the CAN
+controller (OK / error passive / bus off), transmit/receive error counters, messages sent, refused,
+received and lost, and the error types of the last 5 s with an explanation (ACK error = nobody
+acknowledges: no other device or a different speed; bit/CRC/form/stuff errors = wiring,
+termination or speed).
+
 The BMS only allows or blocks charging/discharging (CCL/DCL, CVL); how much power is used is
 decided by the inverter (Victron ESS, or SolarEdge storage profile / meter / Modbus remote control).
 

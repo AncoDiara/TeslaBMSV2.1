@@ -6,6 +6,40 @@
 
 BmsCan bmsCan;
 
+// ---------------------------------------------------------------- CAN bus health (all models)
+#if defined(BOARD_T4)
+  #define BMS_CAN_BASE ((uint32_t)BMS_CAN_BUS)
+#else
+  #define BMS_CAN_BASE 0x40024000UL      // FlexCAN0 of the MK20DX256 (Teensy 3.2)
+#endif
+#define BMS_CAN_ECR  (*(volatile uint32_t *)(BMS_CAN_BASE + 0x1C))
+#define BMS_CAN_ESR1 (*(volatile uint32_t *)(BMS_CAN_BASE + 0x20))
+static volatile uint32_t canTxOk = 0, canTxFail = 0, canRx = 0;
+static uint16_t canErrFlags = 0;
+static uint32_t canErrEvents = 0;
+static uint32_t canLastEsr = 0;
+
+void BmsCan::poll()
+{
+  uint32_t esr = BMS_CAN_ESR1;          // reading clears the error bits
+  canLastEsr = esr;
+  uint16_t e = (uint16_t)(esr & 0xFF00);
+  if (e & 0xFC00) canErrEvents++;
+  canErrFlags |= e;
+}
+
+void BmsCan::stats(BmsCanStats &s, bool resetFlags)
+{
+  poll();
+  uint32_t ecr = BMS_CAN_ECR;
+  s.txOk = canTxOk; s.txFail = canTxFail; s.rx = canRx; s.rxLost = rxOverflows();
+  s.tec = ecr & 0xFF; s.rec = (ecr >> 8) & 0xFF;
+  uint8_t flt = (canLastEsr >> 4) & 0x3;
+  s.state = (flt == 0) ? 0 : (flt == 1 ? 1 : 2);
+  s.errFlags = canErrFlags; s.errEvents = canErrEvents;
+  if (resetFlags) { canErrFlags = 0; canErrEvents = 0; }
+}
+
 // ---------------------------------------------------------------- outputs (all models)
 static uint8_t virtualOut[256 - PIN_VIRTUAL];
 
@@ -53,6 +87,7 @@ bool BmsCan::read(BmsCanMsg &m)
   CAN_message_t c;
   memset(&c, 0, sizeof(c));
   Can0.read(c);
+  canRx++;
   m.id = c.id;
   m.len = c.len;
   m.ext = c.flags.extended ? 1 : 0;
@@ -68,7 +103,9 @@ bool BmsCan::write(const BmsCanMsg &m)
   c.len = m.len;
   c.flags.extended = m.ext ? 1 : 0;
   memcpy(c.buf, m.buf, 8);
-  return Can0.write(c) != 0;
+  bool ok = Can0.write(c) != 0;
+  if (ok) canTxOk++; else canTxFail++;
+  return ok;
 }
 
 uint32_t BmsCan::rxOverflows()
@@ -190,6 +227,7 @@ bool BmsCan::read(BmsCanMsg &m)
   m = rxq[rxTail];
   rxTail = (uint16_t)((rxTail + 1) % BMS_CAN_RXQ);
   interrupts();
+  canRx++;
   return true;
 }
 
@@ -200,7 +238,9 @@ bool BmsCan::write(const BmsCanMsg &m)
   c.len = m.len;
   c.flags.extended = m.ext ? 1 : 0;
   memcpy(c.buf, m.buf, 8);
-  return t4can.write(c) > 0;
+  bool ok = t4can.write(c) > 0;
+  if (ok) canTxOk++; else canTxFail++;
+  return ok;
 }
 
 uint32_t BmsCan::rxOverflows()

@@ -633,6 +633,7 @@ void setup()
 void loop()
 {
 
+  bmsCan.poll();   // CAN error registers (bus health, JSON "cb")
   while (bmsCan.read(inMsg))
   {
     canread();
@@ -2031,6 +2032,10 @@ unsigned long canSlowTimer = 0;
     lt  duration of the last read round in ms (with many modules: keep it well below 3000)
     hw  Teensy model (T32, T40, T41)
     fw  firmware version          st  bmsstatus (0 Boot,1 Ready,2 Drive,3 Charge,4 Precharge,5 Error)
+    cb  CAN bus health: s state (0 OK/error active, 1 error passive, 2 bus off), te/re transmit/receive
+        error counter, ef error bits seen in the last 5 s (ESR1: 0x2000 ACK, 0x1000 CRC, 0x800 form,
+        0x400 stuff, 0x4000/0x8000 bit, 0x200 TX warning, 0x100 RX warning), ee polls with an error,
+        tx/tf sent/refused, rx received, rl lost (receive buffer full), kb speed in kbit/s
     ip  CAN protocol to the inverter (0 Victron, 1 LG RESU LV for SolarEdge RWS)
     ka  LG protocol: seconds since the last 'keep alive' 0x305 of the inverter (-1 = never)
     cx  LG protocol: received CAN messages [id, ext, count, "last data hex"] (max 16 identifiers)
@@ -2060,6 +2065,21 @@ void printJson()
   SERIALCONSOLE.print(",\"cvl\":"); jsonFloat(cvlActual, 2);
   SERIALCONSOLE.print(",\"sm\":"); SERIALCONSOLE.print(storagemode);   // 1 = storage mode (CVL = StoreVsetpoint x Scells)
   SERIALCONSOLE.print(",\"ip\":"); SERIALCONSOLE.print(settings.InverterProto);   // 0 Victron, 1 LG RESU LV (SolarEdge)
+  {
+    BmsCanStats cs;
+    bmsCan.stats(cs, true);   // error flags: since the previous JSON line (5 s)
+    SERIALCONSOLE.print(",\"cb\":{\"s\":"); SERIALCONSOLE.print(cs.state);
+    SERIALCONSOLE.print(",\"te\":"); SERIALCONSOLE.print(cs.tec);
+    SERIALCONSOLE.print(",\"re\":"); SERIALCONSOLE.print(cs.rec);
+    SERIALCONSOLE.print(",\"ef\":"); SERIALCONSOLE.print(cs.errFlags);
+    SERIALCONSOLE.print(",\"ee\":"); SERIALCONSOLE.print(cs.errEvents);
+    SERIALCONSOLE.print(",\"tx\":"); SERIALCONSOLE.print(cs.txOk);
+    SERIALCONSOLE.print(",\"tf\":"); SERIALCONSOLE.print(cs.txFail);
+    SERIALCONSOLE.print(",\"rx\":"); SERIALCONSOLE.print(cs.rx);
+    SERIALCONSOLE.print(",\"rl\":"); SERIALCONSOLE.print(cs.rxLost);
+    SERIALCONSOLE.print(",\"kb\":"); SERIALCONSOLE.print(settings.canSpeed / 1000);
+    SERIALCONSOLE.print("}");
+  }
   if (settings.InverterProto == 1)
   {
     // keep alive of the inverter: seconds since the last 0x305 (-1 = never)
