@@ -176,6 +176,14 @@ Lynx on the CAN bus (current tile, 0x356). Without it: own SOC (coulomb count or
 JSON `sx` = 1, the dashboard shows "from shunt (GX)". Tab variable `TESLABMS_SOC_SOURCE`: `auto`
 (first battery service named Lynx / Shunt / BMV, default), `off`, or an exact dbus service name.
 
+### Implausible cell readings
+
+A Tesla CMU of a broken module can report impossible cell voltages (e.g. 5 V). Readings **below 1.0 V
+(`IgnoreVolt`, menu) or above 4.5 V** are treated as sensor faults: they are left out of the
+lowest/highest cell (so no false over/undervoltage, no CCL/DCL = 0) and out of the average cell voltage.
+v26.34 changes an unchanged `IgnoreVolt` of 0.5 V once to 1.0 V. The dashboard shows such cells grey
+with "invalid" plus a warning, and the history does not store them.
+
 ## Balancing
 
 Passive (bleed resistors in the Tesla module), per string, per cell:

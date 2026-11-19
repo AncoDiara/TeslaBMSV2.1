@@ -290,7 +290,7 @@ float BMSModule::getAverageV()
   float avgVal = 0.0f;
   for (int i = 0; i < 6; i++)
   {
-    if (cellVolt[i] > IgnoreCell && cellVolt[i] < 60.0)
+    if (cellVolt[i] > IgnoreCell && cellVolt[i] < 4.5f)   // NEW: > 4.5 V is a sensor fault (broken CMU), not a cell
     {
       x++;
       avgVal += cellVolt[i];

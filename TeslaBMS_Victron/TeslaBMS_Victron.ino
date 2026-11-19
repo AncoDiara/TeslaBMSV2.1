@@ -321,7 +321,7 @@ void loadSettings()
   settings.DisTSetpoint = 40.0f;
   settings.WarnToff = 5.0f; //temp offset before raising warning
   settings.IgnoreTemp = 0; // 0 - use both sensors, 1 or 2 only use that sensor
-  settings.IgnoreVolt = 0.5;//
+  settings.IgnoreVolt = 1.0f; // cell readings below this (and above 4.5 V) are sensor faults and are ignored
   settings.balanceVoltage = 3.9f;
   settings.balanceHyst = 0.005f; // balance down to 5 mV difference to the lowest cell in the string
   settings.balanceDuty = 50;
@@ -494,6 +494,12 @@ void setup()
   {
     // v26.29: CAN protocol to the inverter, default Victron
     settings.InverterProto = 0;
+    settings.version = EEPROM_VERSION_VIC9;
+  }
+  if (settings.version == EEPROM_VERSION_VIC9)
+  {
+    // v26.34: cell readings below 1.0 V cannot be real (sensor fault); only when still the old default
+    if (fabsf(settings.IgnoreVolt - 0.5f) < 0.001f) settings.IgnoreVolt = 1.0f;
     settings.version = EEPROM_VERSION;
     EEPROM.put(0, settings);
   }

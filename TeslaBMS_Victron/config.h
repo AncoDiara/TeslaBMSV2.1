@@ -32,7 +32,8 @@
 
 #define MAX_MODULE_ADDR     0x3E
 
-#define EEPROM_VERSION      0x1E    //update any time EEPROM struct below is changed.
+#define EEPROM_VERSION      0x1F    //update any time EEPROM struct below is changed.
+#define EEPROM_VERSION_VIC9 0x1E    //previous version: is migrated (v26.34: IgnoreVolt 0.5 -> 1.0 V if still default)
 #define EEPROM_VERSION_VIC8 0x1D    //previous version: is migrated (v26.29: new field InverterProto = 0, Victron)
 #define EEPROM_VERSION_VIC7 0x1C    //previous version: is migrated (v26.28: new field StorageInput = 0)
 #define EEPROM_VERSION_VIC6 0x1B    //previous version: is migrated (v26.24: DischV 3.2 -> 3.0, UnderV 3.0 -> 2.9 if still default)
