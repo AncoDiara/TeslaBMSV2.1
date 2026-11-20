@@ -3876,7 +3876,23 @@ case 'r':  //r for reset
       }
     }
   }
-  //   'P<n>' = CAN protocol to the inverter (and save): P0 = Victron, P1 = LG RESU LV (SolarEdge)
+  //   'K<kbit>' = CAN speed (and save): K250 (VE.Can), K500 (CAN-bus BMS / LG RESU), also K125, K1000
+  if (menuload == 0 && incomingByte == 'K')
+  {
+    long k = Serial.parseInt();
+    SERIALCONSOLE.println();
+    if (k == 125 || k == 250 || k == 500 || k == 1000)
+    {
+      settings.canSpeed = (uint32_t)k * 1000;
+      bmsCan.end();
+      bmsCan.begin(settings.canSpeed);
+      EEPROM.put(0, settings);
+      SERIALCONSOLE.print("CAN speed: "); SERIALCONSOLE.print(k); SERIALCONSOLE.println(" kbit/s (saved)");
+    }
+    else SERIALCONSOLE.println("CAN speed: invalid value (K125, K250, K500, K1000) - not changed");
+    jsonTimer = 0;
+  }
+  //   'P<n>' = CAN protocol to the inverter (and save): P0 = Victron, P1 = LG RESU LV (SolarEdge), P1 sets 500 kbit/s
   if (menuload == 0 && incomingByte == 'P')
   {
     long p = Serial.parseInt();
@@ -3886,8 +3902,15 @@ case 'r':  //r for reset
       settings.InverterProto = (uint8_t)p;
       canLogUsed = 0;
       lgKeepAliveMs = 0;
+      if (p == 1 && settings.canSpeed != 500000)
+      {
+        // LG RESU LV always talks 500 kbit/s
+        settings.canSpeed = 500000;
+        bmsCan.end();
+        bmsCan.begin(settings.canSpeed);
+      }
       EEPROM.put(0, settings);
-      SERIALCONSOLE.println(p ? "CAN protocol: LG RESU LV (SolarEdge) (saved)" : "CAN protocol: Victron (saved)");
+      SERIALCONSOLE.println(p ? "CAN protocol: LG RESU LV (SolarEdge), 500 kbit/s (saved)" : "CAN protocol: Victron (saved)");
     }
     else SERIALCONSOLE.println("CAN protocol: invalid value (P0 = Victron, P1 = LG RESU LV) - not changed");
     jsonTimer = 0;

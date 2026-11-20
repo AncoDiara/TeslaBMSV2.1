@@ -140,6 +140,16 @@ Menu `m` → `p`, the dashboard (*Maintenance* → *CAN protocol*, double click)
   so use 12 cells in series (48 V). Everything the inverter sends is logged (JSON `cx`, max 16
   identifiers, shown in the dashboard) together with its 'keep alive' 0x305 (`ka`).
 
+**CAN speed**: menu, direct command `K250` / `K500` (also `K125`, `K1000`) or the dashboard (*Maintenance* →
+*CAN speed*, double click). Choosing the LG RESU protocol sets 500 kbit/s automatically. All devices on a
+bus must use the same speed: Victron VE.Can devices (Lynx shunt, MPPTs) are always 250 kbit/s, so a
+SolarEdge (500 kbit/s) belongs on the BMS-Can port of the GX (or a VE.Can port set to "CAN-bus BMS 500 kbit/s"),
+not on the VE.Can bus with those devices.
+
+Cable GX <-> SolarEdge "Batt. Comm." (not a straight cable!): Victron pin 7 CAN-H -> pin 4, pin 8 CAN-L ->
+pin 5, GND -> pin 2 or 6 (selected with the CAN GND switch on the SolarEdge battery board). Terminate only the two
+ends of the bus (120 ohm); about 60 ohm between CAN-H and CAN-L with everything off.
+
 **CAN bus health** (JSON `cb`, panel *CAN bus* in the dashboard, both protocols): state of the CAN
 controller (OK / error passive / bus off), transmit/receive error counters, messages sent, refused,
 received and lost, and the error types of the last 5 s with an explanation (ACK error = nobody
