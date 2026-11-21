@@ -90,6 +90,20 @@ Tesla battery on the SolarEdge with the LG RESU LV CAN protocol (see the firmwar
 `solaredge_ctl.py` (pure Python, fetched with the update scripts; also usable by hand:
 `python3 /data/teslabms/solaredge_ctl.py --host <ip> status`).
 
+## Page *Overzicht* (first page): both systems, grid and solar
+Retro gauges, every 2 s:
+- **Net** (system 1's grid meter, per phase), **Zon** (PV of system 1: DC MPPT + PV inverters on AC, plus the
+  SolarEdge's own PV = its AC output + its battery charging), **Huis** (= grid + solar − charging of both
+  batteries) and **Opslag samen**. The red needle is now, the dashed needle(s) the **peak of today**
+  (grid: import and export; storage: charge and discharge), with value and time.
+- Per system: SOC, power (with daily peaks) and details; system 2 also the pack voltage and the BMS values.
+- **Vandaag**: kWh counters (solar, grid import/export, house, charged/discharged).
+- Peaks and counters reset at 00:00 and are saved every 10 min (`teslabms-overview.json`), a restart keeps them.
+- 24 h history: SOC of both systems, grid and solar (`teslabms-overview-history.json`).
+
+System 1 comes over MQTT, so the SolarEdge tab must use "grid + battery of: another GX (MQTT)" (tab variable
+`SOLAREDGE_GRID_GX`); it also subscribes to the battery voltage/current/temperature and PV of that GX.
+
 ## Power
 In this setup the Teensy is powered only from USB: the BMS runs as long as the GX is on.
 When the GX restarts the Teensy restarts as well and counts the modules again.
