@@ -11,7 +11,7 @@ bootloader protocol (same as PJRC's teensy_loader_cli for the MK20DX256 / IMXRT1
   python3 teensy_flash.py --latest --yes     # same, without asking (used by Node-RED)
   python3 teensy_flash.py --file x.hex       # flash a local .hex
   add --board T32 / T40 to choose the Teensy model (default: auto = from the running
-  firmware, otherwise Teensy 3.2); add --port /dev/serial/by-id/... to choose the Teensy
+  firmware, otherwise from the bootloader); add --port /dev/serial/by-id/... to choose the Teensy
   when more than one is connected; add --dry-run to do everything except writing
 
 The model of the .hex file is checked against the chosen model (a Teensy 4 program
@@ -223,10 +223,8 @@ def halfkay_info(sysdir):
     return model, serial
 
 
-def find_halfkay(board=None, serial=None):
-    """/dev/hidrawN of the HalfKay bootloader of THIS Teensy (serial) and model (board).
-    A bootloader of another Teensy or another model is never returned; a wrong model
-    raises an error before anything is written."""
+def list_halfkay():
+    """[(/dev/hidrawN, model, serial)] of every Teensy that is in its HalfKay bootloader."""
     found = []
     for d in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
         try:
@@ -237,6 +235,47 @@ def find_halfkay(board=None, serial=None):
         if "HID_ID=0003:%08X:%08X" % (HALFKAY_VID, HALFKAY_PID) in ue:
             model, ser = halfkay_info(d)
             found.append(("/dev/" + os.path.basename(d), model, ser))
+    return found
+
+
+def model_from_bootloader():
+    """Model of the Teensy when the running firmware does not tell it (no JSON, old firmware):
+    send it to its bootloader (if it is not there yet) and read the model there."""
+    want = serial_of_port(SERIAL_PORT)
+    mine = lambda: [x for x in list_halfkay() if not want or x[2] in (None, want)]
+    found = mine()
+    if not found:
+        if not bootloader_access_ok():
+            raise RuntimeError("no access to the Teensy bootloader for user '%s' (udev rule %s missing). "
+                               "Run install-teensy-ignore.sh once via SSH as root. Nothing was changed." % (_user(), UDEV_RULE))
+        port = find_serial_port()
+        if not port:
+            raise RuntimeError("Teensy not found (no serial port and no bootloader)")
+        if not SERIAL_PORT and len(glob.glob("/dev/serial/by-id/*eensy*")) > 1:
+            raise RuntimeError("more than one Teensy connected: choose one with --port /dev/serial/by-id/...")
+        log("Teensy model unknown (no data from the firmware): to bootloader via %s to read it" % port)
+        soft_reboot(port)
+        want = want or serial_of_port(port)
+        end = time.time() + 15
+        while not found and time.time() < end:
+            time.sleep(0.25)
+            found = mine()
+        if not found:
+            raise RuntimeError("bootloader did not appear; press the button on the Teensy and run again")
+    if len(found) > 1:
+        raise RuntimeError("more than one Teensy is in its bootloader: unplug the one that is not to be flashed")
+    model = found[0][1]
+    if model not in BOARDS:
+        raise RuntimeError("Teensy model in the bootloader not supported or unknown (%s) - not flashed" % model)
+    log("Teensy model from the bootloader: %s" % BOARDS[model]["name"])
+    return model
+
+
+def find_halfkay(board=None, serial=None):
+    """/dev/hidrawN of the HalfKay bootloader of THIS Teensy (serial) and model (board).
+    A bootloader of another Teensy or another model is never returned; a wrong model
+    raises an error before anything is written."""
+    found = list_halfkay()
     if serial:
         found = [x for x in found if x[2] in (None, serial)]
         if any(x[2] == serial for x in found):
@@ -377,7 +416,7 @@ def main():
     g.add_argument("--latest", action="store_true", help="fetch the latest release from GitHub and flash")
     g.add_argument("--file", help="flash a local .hex file")
     ap.add_argument("--board", default="auto", choices=["auto"] + sorted(BOARDS),
-                    help="Teensy model (auto = from the running firmware, otherwise %s)" % DEFAULT_BOARD)
+                    help="Teensy model (auto = from the running firmware, otherwise read in the bootloader)")
     ap.add_argument("--port", help="serial port of the Teensy (/dev/serial/by-id/...) when more than one is connected")
     ap.add_argument("--yes", action="store_true", help="do not ask for confirmation")
     ap.add_argument("--dry-run", action="store_true", help="everything except actually flashing")
@@ -388,7 +427,16 @@ def main():
     SERIAL_PORT = a.port or None
 
     running, running_hw = (None, None) if a.no_serial else read_running(timeout=12.0 if a.check else 7.0)
-    board = a.board if a.board != "auto" else (running_hw if running_hw in BOARDS else DEFAULT_BOARD)
+    board = a.board if a.board != "auto" else (running_hw if running_hw in BOARDS else None)
+    if board is None and a.check:
+        board = DEFAULT_BOARD                 # only the version: the same for every model
+    elif board is None and a.dry_run:
+        board = DEFAULT_BOARD
+    elif board is None and a.file:
+        with open(a.file) as f:
+            board = hex_board(f.read()) or DEFAULT_BOARD
+    elif board is None:
+        board = model_from_bootloader()        # the firmware did not tell it: ask the bootloader
 
     if a.check:
         out = {"running": running, "board": board, "latest": None, "error": None}
