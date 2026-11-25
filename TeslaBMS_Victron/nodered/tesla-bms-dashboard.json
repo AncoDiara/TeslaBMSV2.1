@@ -7,7 +7,7 @@
     "env": [
       {
         "name": "TESLABMS_FLOW_VERSION",
-        "value": "v26.47",
+        "value": "v26.48",
         "type": "str"
       },
       {
@@ -159,7 +159,7 @@
     "type": "function",
     "z": "5fce40a6fa720026",
     "name": "Parse BMS JSON",
-    "func": "// One line of serial output from the Teensy.\n// Only lines that start with '{' are the JSON telemetry (menu m -> j on the Teensy);\n// all other lines (menus, messages) are ignored.\nconst line = String(msg.payload || '').trim();\nif (!line.startsWith('{')) return null;\nlet d;\ntry {\n    d = JSON.parse(line);\n} catch (e) {\n    node.status({ fill: 'red', shape: 'ring', text: 'invalid JSON' });\n    return null;\n}\nd._ts = Date.now();\nd._dvcc = flow.get('dvcc') || null;   // DVCC charge voltage limit (from the GX, see \"DVCC values\")\nflow.set('teensyLastData', d._ts);\nglobal.set('bmsMain', d);   // for the page 'Overzicht'\nflow.set('teensyFw', 'v' + d.fw);\nflow.set('teensyHw', d.hw || 'T32');   // Teensy model (firmware before v26.26 has no hw field: always a Teensy 3.2)\n// Report this Teensy for the port assignment (\"Assign Teensy ports\" in the main tab)\nconst sm = String(flow.get('teensyPort') || '').match(/_([0-9A-Za-z]+)-if\\d+$/);\nif (sm) {\n    const info = global.get('teensyInfo') || {};\n    info[sm[1]] = { me: d.me || 0, hw: d.hw || 'T32', ts: d._ts };\n    global.set('teensyInfo', info);\n}\nnode.status({ fill: 'green', shape: 'dot', text: `v${d.fw}  ${d.so}/${d.se} strings  ${d.lo}-${d.hi} V` });\n\n// History charts: every message goes to the \"History buffer\" (which keeps one point per 30 s)\n// (only once the Teensy ports are assigned for sure, so no data of the other Teensy ends up in it)\nif (!global.get('teensyRolesOk')) return [{ payload: d }, null];\nreturn [{ payload: d }, { payload: { t: d._ts, hi: d.hi, lo: d.lo, hiid: d.hiid, loid: d.loid, v: d.v, cvl: d.cvl } }];\n",
+    "func": "// One line of serial output from the Teensy.\n// Only lines that start with '{' are the JSON telemetry (menu m -> j on the Teensy);\n// all other lines (menus, messages) are ignored.\nconst line = String(msg.payload || '').trim();\nif (!line.startsWith('{')) {\n    // text (start banner, menu, messages): the Teensy lives, but sends no JSON right now\n    if (line) flow.set('teensyLastText', Date.now());\n    return null;\n}\nlet d;\ntry {\n    d = JSON.parse(line);\n} catch (e) {\n    node.status({ fill: 'red', shape: 'ring', text: 'invalid JSON' });\n    return null;\n}\nd._ts = Date.now();\nd._dvcc = flow.get('dvcc') || null;   // DVCC charge voltage limit (from the GX, see \"DVCC values\")\nflow.set('teensyLastData', d._ts);\nglobal.set('bmsMain', d);   // for the page 'Overzicht'\nflow.set('teensyFw', 'v' + d.fw);\nflow.set('teensyHw', d.hw || 'T32');   // Teensy model (firmware before v26.26 has no hw field: always a Teensy 3.2)\n// Report this Teensy for the port assignment (\"Assign Teensy ports\" in the main tab)\nconst sm = String(flow.get('teensyPort') || '').match(/_([0-9A-Za-z]+)-if\\d+$/);\nif (sm) {\n    const info = global.get('teensyInfo') || {};\n    info[sm[1]] = { me: d.me || 0, hw: d.hw || 'T32', ts: d._ts };\n    global.set('teensyInfo', info);\n}\nnode.status({ fill: 'green', shape: 'dot', text: `v${d.fw}  ${d.so}/${d.se} strings  ${d.lo}-${d.hi} V` });\n\n// History charts: every message goes to the \"History buffer\" (which keeps one point per 30 s)\n// (only once the Teensy ports are assigned for sure, so no data of the other Teensy ends up in it)\nif (!global.get('teensyRolesOk')) return [{ payload: d }, null];\nreturn [{ payload: d }, { payload: { t: d._ts, hi: d.hi, lo: d.lo, hiid: d.hiid, loid: d.loid, v: d.v, cvl: d.cvl } }];\n",
     "outputs": 2,
     "timeout": 0,
     "noerr": 0,
@@ -345,7 +345,7 @@
     "id": "6bf75e1b2a0e2b98",
     "type": "comment",
     "z": "5fce40a6fa720026",
-    "name": "Find the Teensy ports (main battery + test bench) + VE_SERVICE=ignore (at start and every 20 s)",
+    "name": "Find the Teensy ports (main battery + test bench) + VE_SERVICE=ignore (at start and every 60 s)",
     "info": "Looks up the Teensy via /dev/serial/by-id (name contains 'Teensy'), sets the serial port via the serial control node and makes sure VenusOS serial-starter leaves the Teensy alone (udev rule VE_SERVICE=ignore for USB-ID 16c0:0483). The rule is also written to /data/rc.local so it comes back automatically after a firmware update.",
     "x": 250,
     "y": 40,
@@ -355,13 +355,13 @@
     "id": "bdff7b450f0e2922",
     "type": "inject",
     "z": "5fce40a6fa720026",
-    "name": "start + every 20 s",
+    "name": "start + every 60 s",
     "props": [
       {
         "p": "payload"
       }
     ],
-    "repeat": "20",
+    "repeat": "60",
     "crontab": "",
     "once": true,
     "onceDelay": "3",
@@ -403,7 +403,7 @@
     "type": "function",
     "z": "5fce40a6fa720026",
     "name": "Assign Teensy ports",
-    "func": "// Assigns the Teensy USB ports: main battery (this tab) and test bench (tab \"Tesla BMS Test\").\n// A Teensy is recognised by its USB serial number (/dev/serial/by-id/...-<serial>-if00).\n// The assignment is saved in a file, so a restart of the GX never swaps them.\n// First assignment with more than one Teensy and nothing saved yet: both are opened, and as\n// soon as both send data the one with the most modules (\"me\" in the JSON) becomes the main battery.\n// To assign again: delete teslabms-teensy-roles.json in the Node-RED folder and restart Node-RED.\nconst out = String(msg.payload || '');\nconst get = (k) => { const m = out.match(new RegExp('^' + k + '=(.*)$', 'm')); return m ? m[1].trim() : ''; };\nconst udev = get('UDEV'), rc = get('RCLOCAL');\nconst perm = (udev === 'noperm' || rc === 'noperm') ? '  (no rights: run install-teensy-ignore.sh once via SSH)' : '';\nconst ports = (out.match(/^PORT=.+$/mg) || []).map(l => l.slice(5).trim()).filter(Boolean);\nconst serialOf = (p) => { const m = p.match(/_([0-9A-Za-z]+)-if\\d+$/); return m ? m[1] : p; };\nconst bySerial = {};\nports.forEach(p => { bySerial[serialOf(p)] = p; });\nconst serials = Object.keys(bySerial).sort();\nconst roles = Object.assign({}, global.get('teensyRoles') || {});\nconst info = global.get('teensyInfo') || {};\nconst now = Date.now();\nconst fresh = (s) => !!(info[s] && (now - info[s].ts) < 120000);\n\n// Tab variable TESLABMS_MAIN_TEENSY = USB serial number of the main battery Teensy (empty = automatic)\nconst forced = String(env.get('TESLABMS_MAIN_TEENSY') || '').trim();\nlet main = (roles.main && bySerial[roles.main]) ? roles.main : null;\nif (forced && bySerial[forced]) main = forced;\nlet sure = !!main;\nif (main) context.set('mainGoneSince', 0);\nif (!main) {\n    // The saved main Teensy is not there. Normally the test Teensy never becomes the main one\n    // (a short absence, e.g. a restart or firmware update of the main Teensy, must not swap them).\n    // Gone for more than 2 minutes (replaced / broken): any Teensy may take over the main role.\n    let goneLong = true;\n    if (roles.main) {\n        const since = context.get('mainGoneSince') || now;\n        context.set('mainGoneSince', since);\n        goneLong = now - since > 120000;\n    }\n    let cands = serials.filter(s => s !== roles.test);\n    if (!cands.length && goneLong) cands = serials.slice();\n    if (cands.length === 1) {\n        main = cands[0]; sure = true;\n    } else if (cands.length > 1) {\n        const best = cands.every(fresh) ? cands.slice().sort((x, y) => (info[y].me || 0) - (info[x].me || 0)) : null;\n        if (best && (info[best[0]].me || 0) > (info[best[1]].me || 0)) {\n            main = best[0];      // clearly the most modules\n            sure = true;\n        } else {\n            const prev = flow.get('mainSerial');\n            main = (prev && cands.includes(prev)) ? prev : cands[0];   // provisional\n        }\n    }\n}\n// Safety net: a saved assignment where the test bench Teensy clearly has more modules than the\n// main one (e.g. saved while both tabs read the same Teensy) is corrected.\nif (main && roles.main === main) {\n    const other = serials.find(s => s !== main);\n    if (other && fresh(main) && fresh(other) && (info[other].me || 0) > (info[main].me || 0)) {\n        main = other;\n        roles.test = null;\n    }\n}\nlet test = (roles.test && bySerial[roles.test] && roles.test !== main) ? roles.test : (serials.find(s => s !== main) || null);\nif (test === main) test = null;   // never the same Teensy for both tabs\nflow.set('mainSerial', main);\nglobal.set('teensyRolesOk', sure || !!roles.main);   // saved assignment: the ports are known even if one Teensy is unplugged\n\nlet save = null;\nif (sure && (roles.main !== main || (test && roles.test !== test))) {\n    const r = { main: main, test: test || (roles.test !== main ? roles.test : null) || null, saved: new Date().toISOString() };\n    global.set('teensyRoles', r);\n    save = { payload: JSON.stringify(r) };\n}\n\n// main battery port (reconnect when there is no data for 60 s, at most once per 60 s)\nlet m1 = null;\nconst mainPort = main ? bySerial[main] : null;\nif (mainPort) {\n    const cur = flow.get('teensyPort');\n    const silent = (now - (flow.get('teensyLastData') || 0)) > 60000;\n    const lr = context.get('lastReconnect') || 0;\n    if (mainPort !== cur || (silent && now - lr > 60000)) {\n        if (mainPort !== cur) { flow.set('teensyHw', null); flow.set('teensyFw', null); }   // other Teensy: model/version unknown until its data arrives\n        flow.set('teensyPort', mainPort);\n        context.set('lastReconnect', now);\n        m1 = { payload: mainPort + ' /data/home/nodered/.node-red/teslabms-tty-main' };   // -> ln -sfn <Teensy> <main link> -> reopen\n    }\n}\nconst short = (s) => s ? s : '-';\nnode.status({ fill: !mainPort ? 'red' : (perm ? 'yellow' : (sure ? 'green' : 'yellow')), shape: mainPort ? 'dot' : 'ring',\n    text: (mainPort ? '' : 'main Teensy not found  ') + 'main ' + short(main) + (sure ? '' : ' (provisional)') + '  test ' + short(test) + '  udev:' + udev + perm });\nreturn [m1, { payload: test ? bySerial[test] : '' }, save];\n",
+    "func": "// Assigns the Teensy USB ports: main battery (this tab) and test bench (tab \"Tesla BMS Test\").\n// A Teensy is recognised by its USB serial number (/dev/serial/by-id/...-<serial>-if00).\n// The assignment is saved in a file, so a restart of the GX never swaps them.\n// First assignment with more than one Teensy and nothing saved yet: both are opened, and as\n// soon as both send data the one with the most modules (\"me\" in the JSON) becomes the main battery.\n// To assign again: delete teslabms-teensy-roles.json in the Node-RED folder and restart Node-RED.\nconst out = String(msg.payload || '');\nconst get = (k) => { const m = out.match(new RegExp('^' + k + '=(.*)$', 'm')); return m ? m[1].trim() : ''; };\nconst udev = get('UDEV'), rc = get('RCLOCAL');\nconst perm = (udev === 'noperm' || rc === 'noperm') ? '  (no rights: run install-teensy-ignore.sh once via SSH)' : '';\nconst ports = (out.match(/^PORT=.+$/mg) || []).map(l => l.slice(5).trim()).filter(Boolean);\nconst serialOf = (p) => { const m = p.match(/_([0-9A-Za-z]+)-if\\d+$/); return m ? m[1] : p; };\nconst bySerial = {};\nports.forEach(p => { bySerial[serialOf(p)] = p; });\nconst serials = Object.keys(bySerial).sort();\nconst roles = Object.assign({}, global.get('teensyRoles') || {});\nconst info = global.get('teensyInfo') || {};\nconst now = Date.now();\nconst fresh = (s) => !!(info[s] && (now - info[s].ts) < 120000);\n\n// Tab variable TESLABMS_MAIN_TEENSY = USB serial number of the main battery Teensy (empty = automatic)\nconst forced = String(env.get('TESLABMS_MAIN_TEENSY') || '').trim();\nlet main = (roles.main && bySerial[roles.main]) ? roles.main : null;\nif (forced && bySerial[forced]) main = forced;\nlet sure = !!main;\nif (main) context.set('mainGoneSince', 0);\nif (!main) {\n    // The saved main Teensy is not there. Normally the test Teensy never becomes the main one\n    // (a short absence, e.g. a restart or firmware update of the main Teensy, must not swap them).\n    // Gone for more than 2 minutes (replaced / broken): any Teensy may take over the main role.\n    let goneLong = true;\n    if (roles.main) {\n        const since = context.get('mainGoneSince') || now;\n        context.set('mainGoneSince', since);\n        goneLong = now - since > 120000;\n    }\n    let cands = serials.filter(s => s !== roles.test);\n    if (!cands.length && goneLong) cands = serials.slice();\n    if (cands.length === 1) {\n        main = cands[0]; sure = true;\n    } else if (cands.length > 1) {\n        const best = cands.every(fresh) ? cands.slice().sort((x, y) => (info[y].me || 0) - (info[x].me || 0)) : null;\n        if (best && (info[best[0]].me || 0) > (info[best[1]].me || 0)) {\n            main = best[0];      // clearly the most modules\n            sure = true;\n        } else {\n            const prev = flow.get('mainSerial');\n            main = (prev && cands.includes(prev)) ? prev : cands[0];   // provisional\n        }\n    }\n}\n// Safety net: a saved assignment where the test bench Teensy clearly has more modules than the\n// main one (e.g. saved while both tabs read the same Teensy) is corrected.\nif (main && roles.main === main) {\n    const other = serials.find(s => s !== main);\n    if (other && fresh(main) && fresh(other) && (info[other].me || 0) > (info[main].me || 0)) {\n        main = other;\n        roles.test = null;\n    }\n}\nlet test = (roles.test && bySerial[roles.test] && roles.test !== main) ? roles.test : (serials.find(s => s !== main) || null);\nif (test === main) test = null;   // never the same Teensy for both tabs\nflow.set('mainSerial', main);\nglobal.set('teensyRolesOk', sure || !!roles.main);   // saved assignment: the ports are known even if one Teensy is unplugged\n\nlet save = null;\nif (sure && (roles.main !== main || (test && roles.test !== test))) {\n    const r = { main: main, test: test || (roles.test !== main ? roles.test : null) || null, saved: new Date().toISOString() };\n    global.set('teensyRoles', r);\n    save = { payload: JSON.stringify(r) };\n}\n\n// main battery port (reconnect when there is no data at all for 10 min, at most once per 10 min;\n// a USB reconnect of the Teensy itself is handled by the port check, the path then changes)\nlet m1 = null;\nconst mainPort = main ? bySerial[main] : null;\nif (mainPort) {\n    const cur = flow.get('teensyPort');\n    const silent = (now - Math.max(flow.get('teensyLastData') || 0, flow.get('teensyLastText') || 0)) > 600000;\n    const lr = context.get('lastReconnect') || 0;\n    if (mainPort !== cur || (silent && now - lr > 600000)) {\n        if (mainPort !== cur) { flow.set('teensyHw', null); flow.set('teensyFw', null); }   // other Teensy: model/version unknown until its data arrives\n        flow.set('teensyPort', mainPort);\n        context.set('lastReconnect', now);\n        m1 = { payload: mainPort + ' /data/home/nodered/.node-red/teslabms-tty-main' };   // -> ln -sfn <Teensy> <main link> -> reopen\n    }\n}\nconst short = (s) => s ? s : '-';\nnode.status({ fill: !mainPort ? 'red' : (perm ? 'yellow' : (sure ? 'green' : 'yellow')), shape: mainPort ? 'dot' : 'ring',\n    text: (mainPort ? '' : 'main Teensy not found  ') + 'main ' + short(main) + (sure ? '' : ' (provisional)') + '  test ' + short(test) + '  udev:' + udev + perm });\nreturn [m1, { payload: test ? bySerial[test] : '' }, save];\n",
     "outputs": 3,
     "timeout": 0,
     "noerr": 0,
@@ -477,7 +477,7 @@
     "width": "12",
     "height": "0",
     "head": "",
-    "format": "<template>\n  <div class=\"upd\">\n    <div class=\"hd\" @click=\"open = !open\">\n      <span class=\"arrow\">{{ open ? '\\u25BE' : '\\u25B8' }}</span>\n      <span class=\"title\">Maintenance &amp; updates</span>\n      <span v-if=\"fwNew || flowNew\" class=\"badge\">update available</span>\n      <span v-if=\"state && !open\" class=\"mini\">{{ state }}</span>\n    </div>\n    <div v-if=\"open\">\n    <div class=\"rows\">\n      <div class=\"row\">\n        <span class=\"k\">Teensy firmware<span v-if=\"boardName\"> ({{ boardName }})</span></span>\n        <span class=\"v\">{{ info.running || '-' }}</span>\n        <span class=\"k2\">latest</span>\n        <span class=\"v\">{{ info.latestFw || '-' }}</span>\n        <span v-if=\"fwNew\" class=\"badge\">update available</span>\n        <span v-else-if=\"info.latestFw && info.running\" class=\"ok\">up to date</span>\n      </div>\n      <div class=\"row\">\n        <span class=\"k\">Dashboard (flow)</span>\n        <span class=\"v\">{{ info.flowInstalled || '-' }}</span>\n        <span class=\"k2\">latest</span>\n        <span class=\"v\">{{ info.latestFlow || '-' }}</span>\n        <span v-if=\"flowNew\" class=\"badge\">update available</span>\n        <span v-else-if=\"info.latestFlow && info.flowInstalled\" class=\"ok\">up to date</span>\n      </div>\n    </div>\n    <div class=\"bal\">\n      <span class=\"k\">CAN protocol</span>\n      <button @click=\"setProto(0)\">Victron</button>\n      <button @click=\"setProto(1)\">LG RESU LV (SolarEdge)</button>\n      <span class=\"k2\">double click; current protocol: header of the overview (LG RESU sets 500 kbit/s)</span>\n    </div>\n    <div class=\"bal\">\n      <span class=\"k\">Battery voltage</span>\n      <button @click=\"setCells(6)\">24 V (6S)</button>\n      <button @click=\"setCells(12)\">48 V (12S)</button>\n      <span class=\"k2\">double click; strings are counted again (auto-detect)</span>\n    </div>\n    <div class=\"bal\">\n      <span class=\"k\">CAN speed</span>\n      <button @click=\"setKbit(250)\">250 kbit/s (VE.Can)</button>\n      <button @click=\"setKbit(500)\">500 kbit/s (BMS-Can / LG RESU)</button>\n      <span class=\"k2\">double click; current speed: CAN bus panel</span>\n    </div>\n    <div class=\"bal\">\n      <span class=\"k\">Balancing</span>\n      <label>start &gt; <input type=\"number\" v-model.number=\"balStart\" min=\"3\" max=\"100\" step=\"1\"> mV</label>\n      <label>down to <input type=\"number\" v-model.number=\"balStop\" min=\"2\" max=\"50\" step=\"1\"> mV</label>\n      <button @click=\"setBal\">Apply</button>\n      <span class=\"k2\">current values: Balancing tile</span>\n    </div>\n    <div class=\"btns\">\n      <button @click=\"go('check')\">Check</button>\n      <button @click=\"go('fw')\" :class=\"{ hot: fwNew }\">Update Teensy firmware</button>\n      <button @click=\"go('flow')\" :class=\"{ hot: flowNew }\">Update dashboard</button>\n    </div>\n    <div v-if=\"state\" class=\"state\"><span v-if=\"busy\" class=\"spin\"></span>{{ state }}</div>\n    <div v-if=\"info.error\" class=\"err\">{{ info.error }}</div>\n    <pre v-if=\"logText\" class=\"log\">{{ logText }}</pre>\n    <div class=\"hint\">Updates require a double click (confirmation within 10 s). During a firmware update the BMS is off for a few seconds; Victron stops charging/discharging and continues afterwards. The JSON output of the Teensy is switched on automatically by this flow.</div>\n    </div>\n  </div>\n</template>\n\n<script>\nexport default {\n  data() {\n    return { info: {}, state: '', logText: '', open: false, balStart: 7, balStop: 3 }\n  },\n  computed: {\n    boardName() { return ({ T32: 'Teensy 3.2', T40: 'Teensy 4.0', T41: 'Teensy 4.1' })[this.info.board] || '' },\n    fwNew() { return !!(this.info.latestFw && this.info.running && this.info.latestFw !== this.info.running) },\n    busy() { return /\\.\\.\\.|Sending/.test(this.state || '') },\n    flowNew() { return !!(this.info.latestFlow && this.info.flowInstalled && this.info.latestFlow !== this.info.flowInstalled) }\n  },\n  watch: {\n    msg: {\n      handler(m) {\n        if (!m || !m.payload) return\n        const p = m.payload\n        if (p.kind === 'info') { this.info = Object.assign({}, this.info, p.info || {}); if (p.state) this.state = p.state }\n        if (p.kind === 'state') this.state = p.text\n        if (p.kind === 'log') { this.logText = p.text; if (p.state) this.state = p.state }\n      },\n      immediate: true\n    }\n  },\n  methods: {\n    setCells(c) {\n      this.state = 'Sending...'\n      this.send({ topic: 'cells', payload: c })\n    },\n    setKbit(k) {\n      this.state = 'Sending...'\n      this.send({ topic: 'kbit', payload: k })\n    },\n    setProto(p) {\n      this.state = 'Sending...'\n      this.send({ topic: 'proto', payload: p })\n    },\n    setBal() {\n      const a = Math.round(this.balStart), b = Math.round(this.balStop)\n      if (!(b >= 2 && b <= 50 && a > b && a <= 100)) { this.state = 'Balancing: stop 2-50 mV, start greater than stop (max 100 mV)'; return }\n      this.state = 'Sending...'\n      this.send({ topic: 'bal', payload: { start: a, stop: b } })\n    },\n    go(t) {\n      // immediate feedback, the server answers within a moment\n      if (t === 'check') { this.state = 'Checking versions...'; this.logText = '' }\n      else this.state = 'Sending...'\n      this.send({ topic: t, payload: Date.now() })\n    }\n  }\n}\n</script>\n\n<style scoped>\n.upd { width: 100%; }\n.hd { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; padding: 2px 0 6px; }\n.arrow { width: 14px; opacity: 0.7; }\n.title { font-weight: 600; }\n.mini { font-size: 0.85em; opacity: 0.7; }\n.rows { display: grid; gap: 6px; margin-bottom: 10px; }\n.row { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }\n.k { min-width: 140px; opacity: 0.7; }\n.k2 { opacity: 0.6; font-size: 0.85em; }\n.v { font-weight: 600; font-variant-numeric: tabular-nums; }\n.badge { padding: 2px 8px; border-radius: 10px; background: rgba(210, 153, 34, 0.22); color: #b7791f; font-weight: 600; font-size: 0.85em; }\n.ok { color: #2ea043; font-size: 0.85em; font-weight: 600; }\n.btns { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }\n.btns button { padding: 7px 14px; border-radius: 6px; border: 1px solid rgba(127, 127, 127, 0.4); background: rgba(127, 127, 127, 0.08); cursor: pointer; font: inherit; color: inherit; }\n.btns button:hover { background: rgba(127, 127, 127, 0.18); }\n.btns button.hot { border-color: #b7791f; background: rgba(210, 153, 34, 0.18); }\n.state { font-weight: 600; margin: 6px 0; }\n.err { color: #da3633; margin: 6px 0; }\n.log { max-height: 220px; overflow: auto; font-size: 0.8em; background: rgba(127, 127, 127, 0.08); padding: 8px; border-radius: 6px; white-space: pre-wrap; }\n.spin { display: inline-block; width: 0.9em; height: 0.9em; margin-right: 8px; vertical-align: -0.1em; border: 2px solid rgba(127,127,127,0.35); border-top-color: currentColor; border-radius: 50%; animation: spin 0.8s linear infinite; }\n@keyframes spin { to { transform: rotate(360deg); } }\n.bal { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }\n.bal input { width: 4.5em; padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(127, 127, 127, 0.4); background: transparent; color: inherit; font: inherit; }\n.bal button { padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(127, 127, 127, 0.4); background: rgba(127, 127, 127, 0.08); cursor: pointer; font: inherit; color: inherit; }\n.hint { font-size: 0.8em; opacity: 0.65; margin-top: 6px; }\n</style>\n",
+    "format": "<template>\n  <div class=\"upd\">\n    <div class=\"hd\" @click=\"open = !open\">\n      <span class=\"arrow\">{{ open ? '\\u25BE' : '\\u25B8' }}</span>\n      <span class=\"title\">Maintenance &amp; updates</span>\n      <span v-if=\"fwNew || flowNew\" class=\"badge\">update available</span>\n      <span v-if=\"state && !open\" class=\"mini\">{{ state }}</span>\n    </div>\n    <div v-if=\"open\">\n    <div class=\"rows\">\n      <div class=\"row\">\n        <span class=\"k\">Teensy firmware<span v-if=\"boardName\"> ({{ boardName }})</span></span>\n        <span class=\"v\">{{ info.running || '-' }}</span>\n        <span class=\"k2\">latest</span>\n        <span class=\"v\">{{ info.latestFw || '-' }}</span>\n        <span v-if=\"fwNew\" class=\"badge\">update available</span>\n        <span v-else-if=\"info.latestFw && info.running\" class=\"ok\">up to date</span>\n      </div>\n      <div class=\"row\">\n        <span class=\"k\">Dashboard (flow)</span>\n        <span class=\"v\">{{ info.flowInstalled || '-' }}</span>\n        <span class=\"k2\">latest</span>\n        <span class=\"v\">{{ info.latestFlow || '-' }}</span>\n        <span v-if=\"flowNew\" class=\"badge\">update available</span>\n        <span v-else-if=\"info.latestFlow && info.flowInstalled\" class=\"ok\">up to date</span>\n      </div>\n    </div>\n    <div class=\"bal\">\n      <span class=\"k\">CAN protocol</span>\n      <button @click=\"setProto(0)\">Victron</button>\n      <button @click=\"setProto(1)\">LG RESU LV (SolarEdge)</button>\n      <span class=\"k2\">double click; current protocol: header of the overview (LG RESU sets 500 kbit/s)</span>\n    </div>\n    <div class=\"bal\">\n      <span class=\"k\">Battery voltage</span>\n      <button @click=\"setCells(6)\">24 V (6S)</button>\n      <button @click=\"setCells(12)\">48 V (12S)</button>\n      <span class=\"k2\">double click; strings are counted again (auto-detect)</span>\n    </div>\n    <div class=\"bal\">\n      <span class=\"k\">CAN speed</span>\n      <button @click=\"setKbit(250)\">250 kbit/s (VE.Can)</button>\n      <button @click=\"setKbit(500)\">500 kbit/s (BMS-Can / LG RESU)</button>\n      <span class=\"k2\">double click; current speed: CAN bus panel</span>\n    </div>\n    <div class=\"bal\">\n      <span class=\"k\">Balancing</span>\n      <label>start &gt; <input type=\"number\" v-model.number=\"balStart\" min=\"3\" max=\"100\" step=\"1\"> mV</label>\n      <label>down to <input type=\"number\" v-model.number=\"balStop\" min=\"2\" max=\"50\" step=\"1\"> mV</label>\n      <label>from cell &gt; <input type=\"number\" v-model.number=\"balFrom\" min=\"3300\" max=\"4150\" step=\"10\"> mV</label>\n      <button @click=\"setBal\">Apply</button>\n      <span class=\"k2\">current values: Balancing tile</span>\n    </div>\n    <div class=\"btns\">\n      <button @click=\"go('check')\">Check</button>\n      <button @click=\"go('fw')\" :class=\"{ hot: fwNew }\">Update Teensy firmware</button>\n      <button @click=\"go('flow')\" :class=\"{ hot: flowNew }\">Update dashboard</button>\n    </div>\n    <div v-if=\"state\" class=\"state\"><span v-if=\"busy\" class=\"spin\"></span>{{ state }}</div>\n    <div v-if=\"info.error\" class=\"err\">{{ info.error }}</div>\n    <pre v-if=\"logText\" class=\"log\">{{ logText }}</pre>\n    <div class=\"hint\">Updates require a double click (confirmation within 10 s). During a firmware update the BMS is off for a few seconds; Victron stops charging/discharging and continues afterwards. The JSON output of the Teensy is switched on automatically by this flow.</div>\n    </div>\n  </div>\n</template>\n\n<script>\nexport default {\n  data() {\n    return { info: {}, state: '', logText: '', open: false, balStart: 7, balStop: 3, balFrom: 3900 }\n  },\n  computed: {\n    boardName() { return ({ T32: 'Teensy 3.2', T40: 'Teensy 4.0', T41: 'Teensy 4.1' })[this.info.board] || '' },\n    fwNew() { return !!(this.info.latestFw && this.info.running && this.info.latestFw !== this.info.running) },\n    busy() { return /\\.\\.\\.|Sending/.test(this.state || '') },\n    flowNew() { return !!(this.info.latestFlow && this.info.flowInstalled && this.info.latestFlow !== this.info.flowInstalled) }\n  },\n  watch: {\n    msg: {\n      handler(m) {\n        if (!m || !m.payload) return\n        const p = m.payload\n        if (p.kind === 'info') { this.info = Object.assign({}, this.info, p.info || {}); if (p.state) this.state = p.state }\n        if (p.kind === 'state') this.state = p.text\n        if (p.kind === 'log') { this.logText = p.text; if (p.state) this.state = p.state }\n      },\n      immediate: true\n    }\n  },\n  methods: {\n    setCells(c) {\n      this.state = 'Sending...'\n      this.send({ topic: 'cells', payload: c })\n    },\n    setKbit(k) {\n      this.state = 'Sending...'\n      this.send({ topic: 'kbit', payload: k })\n    },\n    setProto(p) {\n      this.state = 'Sending...'\n      this.send({ topic: 'proto', payload: p })\n    },\n    setBal() {\n      const a = Math.round(this.balStart), b = Math.round(this.balStop), v = Math.round(this.balFrom)\n      if (!(b >= 2 && b <= 50 && a > b && a <= 100)) { this.state = 'Balancing: stop 2-50 mV, start greater than stop (max 100 mV)'; return }\n      if (!(v >= 3300 && v <= 4150)) { this.state = 'Balancing: from cell voltage 3300-4150 mV'; return }\n      this.state = 'Sending...'\n      this.send({ topic: 'bal', payload: { start: a, stop: b, from: v } })\n    },\n    go(t) {\n      // immediate feedback, the server answers within a moment\n      if (t === 'check') { this.state = 'Checking versions...'; this.logText = '' }\n      else this.state = 'Sending...'\n      this.send({ topic: t, payload: Date.now() })\n    }\n  }\n}\n</script>\n\n<style scoped>\n.upd { width: 100%; }\n.hd { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; padding: 2px 0 6px; }\n.arrow { width: 14px; opacity: 0.7; }\n.title { font-weight: 600; }\n.mini { font-size: 0.85em; opacity: 0.7; }\n.rows { display: grid; gap: 6px; margin-bottom: 10px; }\n.row { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }\n.k { min-width: 140px; opacity: 0.7; }\n.k2 { opacity: 0.6; font-size: 0.85em; }\n.v { font-weight: 600; font-variant-numeric: tabular-nums; }\n.badge { padding: 2px 8px; border-radius: 10px; background: rgba(210, 153, 34, 0.22); color: #b7791f; font-weight: 600; font-size: 0.85em; }\n.ok { color: #2ea043; font-size: 0.85em; font-weight: 600; }\n.btns { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }\n.btns button { padding: 7px 14px; border-radius: 6px; border: 1px solid rgba(127, 127, 127, 0.4); background: rgba(127, 127, 127, 0.08); cursor: pointer; font: inherit; color: inherit; }\n.btns button:hover { background: rgba(127, 127, 127, 0.18); }\n.btns button.hot { border-color: #b7791f; background: rgba(210, 153, 34, 0.18); }\n.state { font-weight: 600; margin: 6px 0; }\n.err { color: #da3633; margin: 6px 0; }\n.log { max-height: 220px; overflow: auto; font-size: 0.8em; background: rgba(127, 127, 127, 0.08); padding: 8px; border-radius: 6px; white-space: pre-wrap; }\n.spin { display: inline-block; width: 0.9em; height: 0.9em; margin-right: 8px; vertical-align: -0.1em; border: 2px solid rgba(127,127,127,0.35); border-top-color: currentColor; border-radius: 50%; animation: spin 0.8s linear infinite; }\n@keyframes spin { to { transform: rotate(360deg); } }\n.bal { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }\n.bal input { width: 4.5em; padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(127, 127, 127, 0.4); background: transparent; color: inherit; font: inherit; }\n.bal button { padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(127, 127, 127, 0.4); background: rgba(127, 127, 127, 0.08); cursor: pointer; font: inherit; color: inherit; }\n.hint { font-size: 0.8em; opacity: 0.65; margin-top: 6px; }\n</style>\n",
     "storeOutMessages": true,
     "passthru": false,
     "resendOnRefresh": true,
@@ -520,7 +520,7 @@
     "type": "function",
     "z": "5fce40a6fa720026",
     "name": "Router (check / double click)",
-    "func": "// Buttons from the \"Updates\" template and the periodic check (outputs: check, fw, flow, ui, Teensy serial).\n// Updates need a double click: the second click must come within 10 s.\nconst now = Date.now();\nconst t = msg.topic;\nconst ui = (text) => ({ payload: { kind: 'state', text: text } });\nif (t === 'check') {\n    // ignore a second check while one is running (max 150 s, the exec times out at 120 s)\n    const busy = flow.get('teslabmsChecking');\n    if (busy && (now - busy) < 150000) return [null, null, null, ui('Checking versions... (already running)')];\n    flow.set('teslabmsChecking', now);\n    return [{ payload: '' }, null, null, ui('Checking versions...')];\n}\nif (t === 'cells') {\n    // cells in series per string: 6 = 24 V, 12 = 48 V. Double click (10 s).\n    const c = [6, 12].includes(Number(msg.payload)) ? Number(msg.payload) : 0;\n    if (!c) return [null, null, null, ui('Battery voltage: invalid value'), null];\n    const armed = context.get('armedCells') || {};\n    if (armed.c === c && (now - armed.at) < 10000) {\n        context.set('armedCells', {});\n        return [null, null, null, ui('Sent: ' + c + ' cells in series (' + (c * 4) + ' V nominal) - strings are counted again (needs firmware v26.36)'), { payload: 'C' + c + '\\n' }];\n    }\n    context.set('armedCells', { c: c, at: now });\n    return [null, null, null, ui('Click again within 10 s to set ' + c + ' cells in series (' + (c === 6 ? '24' : '48') + ' V)'), null];\n}\nif (t === 'kbit') {\n    // CAN speed of the Teensy (kbit/s). Double click (10 s).\n    const k = [125, 250, 500, 1000].includes(Number(msg.payload)) ? Number(msg.payload) : 0;\n    if (!k) return [null, null, null, ui('CAN speed: invalid value'), null];\n    const armed = context.get('armedKbit') || {};\n    if (armed.k === k && (now - armed.at) < 10000) {\n        context.set('armedKbit', {});\n        return [null, null, null, ui('CAN speed sent: ' + k + ' kbit/s - the CAN bus panel shows it within a few seconds (needs firmware v26.35)'), { payload: 'K' + k + '\\n' }];\n    }\n    context.set('armedKbit', { k: k, at: now });\n    return [null, null, null, ui('Click again within 10 s to set the CAN speed to ' + k + ' kbit/s. All devices on the bus must use the same speed!'), null];\n}\nif (t === 'proto') {\n    // CAN protocol to the inverter: 0 Victron, 1 LG RESU LV (SolarEdge). Double click (10 s).\n    const p = Number(msg.payload) === 1 ? 1 : 0;\n    const armed = context.get('armedProto') || {};\n    if (armed.p === p && (now - armed.at) < 10000) {\n        context.set('armedProto', {});\n        return [null, null, null, ui('CAN protocol sent: ' + (p ? 'LG RESU LV (SolarEdge)' : 'Victron') + ' - the overview header shows it within a few seconds (needs firmware v26.29)'), { payload: 'P' + p + '\\n' }];\n    }\n    context.set('armedProto', { p: p, at: now });\n    return [null, null, null, ui('Click again within 10 s to switch the CAN protocol to ' + (p ? 'LG RESU LV (SolarEdge)' : 'Victron') + '. Victron/SolarEdge only work with the matching protocol!'), null];\n}\nif (t === 'bal') {\n    // balancing start/stop difference (mV) -> direct command \"B<start>,<stop>\" to the Teensy (saved in EEPROM)\n    const p = msg.payload || {};\n    const a = Math.round(Number(p.start)), b = Math.round(Number(p.stop));\n    if (!(b >= 2 && b <= 50 && a > b && a <= 100)) return [null, null, null, ui('Balancing: invalid values'), null];\n    node.status({ fill: 'blue', shape: 'dot', text: `balancing ${a}/${b} mV` });\n    return [null, null, null, ui(`Balancing sent: start > ${a} mV, down to ${b} mV - the Balancing tile shows the new values within a few seconds (needs firmware v26.25 or newer)`), { payload: `B${a},${b}\\n` }];\n}\nif (t === 'fw' || t === 'flow') {\n    if (flow.get('teslabmsBusy')) return [null, null, null, ui('An update is already running - please wait')];\n    const gb = global.get('teslabmsFlashBusy') || 0;\n    if (now - gb < 300000) return [null, null, null, ui('A firmware update of the other Teensy is running - please wait')];\n    const armed = context.get('armed') || {};\n    if (armed.t === t && (now - armed.at) < 10000) {\n        context.set('armed', {});\n        flow.set('teslabmsBusy', true);\n        if (t === 'fw') {\n            node.status({ fill: 'yellow', shape: 'dot', text: 'flashing Teensy...' });\n            const hw = flow.get('teensyHw') || 'auto';   // model of the running firmware; unknown: the flash script reads it in the bootloader\n            const port = flow.get('teensyPort');   // exactly this Teensy (there can be more than one)\n            if (!port) { flow.set('teslabmsBusy', false); return [null, null, null, ui('Teensy port unknown - wait until data arrives')]; }\n            global.set('teslabmsFlashBusy', now);\n            return [null, { payload: '--board ' + hw + ' --port ' + port }, null, ui('Teensy firmware update running (BMS off for a few seconds)...')];\n        }\n        node.status({ fill: 'yellow', shape: 'dot', text: 'updating dashboard...' });\n        return [null, null, { payload: '' }, ui('Dashboard update running - Node-RED restarts; reload this page after about 30 s.')];\n    }\n    context.set('armed', { t: t, at: now });\n    const name = t === 'fw' ? 'Update Teensy firmware' : 'Update dashboard';\n    return [null, null, null, ui('Click \"' + name + '\" again within 10 seconds to confirm.')];\n}\nreturn null;\n",
+    "func": "// Buttons from the \"Updates\" template and the periodic check (outputs: check, fw, flow, ui, Teensy serial).\n// Updates need a double click: the second click must come within 10 s.\nconst now = Date.now();\nconst t = msg.topic;\nconst ui = (text) => ({ payload: { kind: 'state', text: text } });\nif (t === 'check') {\n    // ignore a second check while one is running (max 150 s, the exec times out at 120 s)\n    const busy = flow.get('teslabmsChecking');\n    if (busy && (now - busy) < 150000) return [null, null, null, ui('Checking versions... (already running)')];\n    flow.set('teslabmsChecking', now);\n    return [{ payload: '' }, null, null, ui('Checking versions...')];\n}\nif (t === 'cells') {\n    // cells in series per string: 6 = 24 V, 12 = 48 V. Double click (10 s).\n    const c = [6, 12].includes(Number(msg.payload)) ? Number(msg.payload) : 0;\n    if (!c) return [null, null, null, ui('Battery voltage: invalid value'), null];\n    const armed = context.get('armedCells') || {};\n    if (armed.c === c && (now - armed.at) < 10000) {\n        context.set('armedCells', {});\n        return [null, null, null, ui('Sent: ' + c + ' cells in series (' + (c * 4) + ' V nominal) - strings are counted again (needs firmware v26.36)'), { payload: 'C' + c + '\\n' }];\n    }\n    context.set('armedCells', { c: c, at: now });\n    return [null, null, null, ui('Click again within 10 s to set ' + c + ' cells in series (' + (c === 6 ? '24' : '48') + ' V)'), null];\n}\nif (t === 'kbit') {\n    // CAN speed of the Teensy (kbit/s). Double click (10 s).\n    const k = [125, 250, 500, 1000].includes(Number(msg.payload)) ? Number(msg.payload) : 0;\n    if (!k) return [null, null, null, ui('CAN speed: invalid value'), null];\n    const armed = context.get('armedKbit') || {};\n    if (armed.k === k && (now - armed.at) < 10000) {\n        context.set('armedKbit', {});\n        return [null, null, null, ui('CAN speed sent: ' + k + ' kbit/s - the CAN bus panel shows it within a few seconds (needs firmware v26.35)'), { payload: 'K' + k + '\\n' }];\n    }\n    context.set('armedKbit', { k: k, at: now });\n    return [null, null, null, ui('Click again within 10 s to set the CAN speed to ' + k + ' kbit/s. All devices on the bus must use the same speed!'), null];\n}\nif (t === 'proto') {\n    // CAN protocol to the inverter: 0 Victron, 1 LG RESU LV (SolarEdge). Double click (10 s).\n    const p = Number(msg.payload) === 1 ? 1 : 0;\n    const armed = context.get('armedProto') || {};\n    if (armed.p === p && (now - armed.at) < 10000) {\n        context.set('armedProto', {});\n        return [null, null, null, ui('CAN protocol sent: ' + (p ? 'LG RESU LV (SolarEdge)' : 'Victron') + ' - the overview header shows it within a few seconds (needs firmware v26.29)'), { payload: 'P' + p + '\\n' }];\n    }\n    context.set('armedProto', { p: p, at: now });\n    return [null, null, null, ui('Click again within 10 s to switch the CAN protocol to ' + (p ? 'LG RESU LV (SolarEdge)' : 'Victron') + '. Victron/SolarEdge only work with the matching protocol!'), null];\n}\nif (t === 'bal') {\n    // balancing start/stop difference (mV) -> direct command \"B<start>,<stop>\" to the Teensy (saved in EEPROM)\n    const p = msg.payload || {};\n    const a = Math.round(Number(p.start)), b = Math.round(Number(p.stop)), v = Math.round(Number(p.from));\n    if (!(b >= 2 && b <= 50 && a > b && a <= 100)) return [null, null, null, ui('Balancing: invalid values'), null];\n    if (!(v >= 3300 && v <= 4150)) return [null, null, null, ui('Balancing: from cell voltage 3300-4150 mV'), null];\n    node.status({ fill: 'blue', shape: 'dot', text: `balancing from ${v} mV, ${a}/${b} mV` });\n    return [null, null, null, ui(`Balancing sent: from cell > ${v} mV, start > ${a} mV, down to ${b} mV - the Balancing tile shows the new values within a few seconds (the from voltage needs firmware v26.37)`), { payload: `B${a},${b},${v}\\n` }];\n}\nif (t === 'fw' || t === 'flow') {\n    if (flow.get('teslabmsBusy')) return [null, null, null, ui('An update is already running - please wait')];\n    const gb = global.get('teslabmsFlashBusy') || 0;\n    if (now - gb < 300000) return [null, null, null, ui('A firmware update of the other Teensy is running - please wait')];\n    const armed = context.get('armed') || {};\n    if (armed.t === t && (now - armed.at) < 10000) {\n        context.set('armed', {});\n        flow.set('teslabmsBusy', true);\n        if (t === 'fw') {\n            node.status({ fill: 'yellow', shape: 'dot', text: 'flashing Teensy...' });\n            const hw = flow.get('teensyHw') || 'auto';   // model of the running firmware; unknown: the flash script reads it in the bootloader\n            const port = flow.get('teensyPort');   // exactly this Teensy (there can be more than one)\n            if (!port) { flow.set('teslabmsBusy', false); return [null, null, null, ui('Teensy port unknown - wait until data arrives')]; }\n            global.set('teslabmsFlashBusy', now);\n            return [null, { payload: '--board ' + hw + ' --port ' + port }, null, ui('Teensy firmware update running (BMS off for a few seconds)...')];\n        }\n        node.status({ fill: 'yellow', shape: 'dot', text: 'updating dashboard...' });\n        return [null, null, { payload: '' }, ui('Dashboard update running - Node-RED restarts; reload this page after about 30 s.')];\n    }\n    context.set('armed', { t: t, at: now });\n    const name = t === 'fw' ? 'Update Teensy firmware' : 'Update dashboard';\n    return [null, null, null, ui('Click \"' + name + '\" again within 10 seconds to confirm.')];\n}\nreturn null;\n",
     "outputs": 5,
     "timeout": 0,
     "noerr": 0,
@@ -660,13 +660,13 @@
     "id": "c09e871bcd7b970f",
     "type": "inject",
     "z": "5fce40a6fa720026",
-    "name": "every 20 s",
+    "name": "every 60 s",
     "props": [
       {
         "p": "payload"
       }
     ],
-    "repeat": "20",
+    "repeat": "60",
     "crontab": "",
     "once": true,
     "onceDelay": "15",
@@ -686,7 +686,7 @@
     "type": "function",
     "z": "5fce40a6fa720026",
     "name": "JSON watchdog",
-    "func": "// No JSON from the Teensy for 20 s? Send 'J' (JSON output on + save in the Teensy).\n// At most once per 30 s. Also covers: new Teensy, EEPROM reset, firmware update.\nconst now = Date.now();\nconst last = flow.get('teensyLastData') || 0;\nconst sent = context.get('sent') || 0;\nif (now - last > 20000) {\n    if (now - sent > 30000) {\n        context.set('sent', now);\n        node.status({ fill: 'yellow', shape: 'ring', text: 'no JSON - sent J' });\n        return { payload: 'J\\n' };\n    }\n    return null;\n}\nnode.status({ fill: 'green', shape: 'dot', text: 'JSON is arriving' });\nreturn null;\n",
+    "func": "// Patient JSON watchdog (flow v26.48). Node-RED does NOT keep sending commands to the Teensy:\n// every byte would keep an open menu open (a technician at work, or stray bytes).\n//   JSON arrives                          -> nothing to do\n//   text, but no JSON for 3 min           -> 'J' once (JSON on); again at most every 10 min\n//   completely silent for 5 min           -> warning only (cable, technician, Teensy off);\n//                                            'J' at most every 15 min (closes a menu from fw v26.37)\nconst now = Date.now();\nconst last = flow.get('teensyLastData') || 0;\nconst text = flow.get('teensyLastText') || 0;\nconst sent = context.get('sent') || 0;\nconst ago = (t) => t ? Math.round((now - t) / 60000) + ' min' : 'never';\nif (now - last < 180000) {\n    node.status({ fill: 'green', shape: 'dot', text: 'JSON is arriving' });\n    return null;\n}\nif (text > last && now - text < 180000) {\n    if (now - sent > 600000) {\n        context.set('sent', now);\n        node.status({ fill: 'yellow', shape: 'ring', text: 'text instead of JSON - sent J' });\n        return { payload: 'J\\n' };\n    }\n    node.status({ fill: 'yellow', shape: 'ring', text: 'text instead of JSON (J sent ' + ago(sent) + ' ago)' });\n    return null;\n}\nif (now - Math.max(last, text) > 300000 && now - sent > 900000) {\n    context.set('sent', now);\n    node.status({ fill: 'red', shape: 'ring', text: 'Teensy silent for ' + ago(Math.max(last, text)) + ' - sent J' });\n    return { payload: 'J\\n' };\n}\nnode.status({ fill: 'yellow', shape: 'ring', text: 'no JSON for ' + ago(last) });\nreturn null;\n",
     "outputs": 1,
     "timeout": 0,
     "noerr": 0,
@@ -710,53 +710,6 @@
     "x": 530,
     "y": 260,
     "wires": []
-  },
-  {
-    "id": "c35defe0eb56cba4",
-    "type": "inject",
-    "z": "5fce40a6fa720026",
-    "name": "every 30 s",
-    "props": [
-      {
-        "p": "payload"
-      }
-    ],
-    "repeat": "30",
-    "crontab": "",
-    "once": true,
-    "onceDelay": "10",
-    "topic": "",
-    "payload": "",
-    "payloadType": "date",
-    "x": 130,
-    "y": 300,
-    "wires": [
-      [
-        "b8072401adc3b2b1"
-      ]
-    ]
-  },
-  {
-    "id": "b8072401adc3b2b1",
-    "type": "exec",
-    "z": "5fce40a6fa720026",
-    "name": "DVCC values (dbus)",
-    "command": "echo \"LIM=$(dbus -y com.victronenergy.settings /Settings/SystemSetup/MaxChargeVoltage GetValue 2>/dev/null)\"",
-    "addpay": "",
-    "append": "",
-    "useSpawn": "false",
-    "timer": "20",
-    "winHide": false,
-    "oldrc": false,
-    "x": 330,
-    "y": 300,
-    "wires": [
-      [
-        "2d8c8e888dcd62c0"
-      ],
-      [],
-      []
-    ]
   },
   {
     "id": "2d8c8e888dcd62c0",
@@ -1017,7 +970,7 @@
     "type": "function",
     "z": "1c876e5c8d682a9e",
     "name": "Parse BMS JSON",
-    "func": "// One line of serial output from the Teensy.\n// Only lines that start with '{' are the JSON telemetry (menu m -> j on the Teensy);\n// all other lines (menus, messages) are ignored.\nconst line = String(msg.payload || '').trim();\nif (!line.startsWith('{')) return null;\nlet d;\ntry {\n    d = JSON.parse(line);\n} catch (e) {\n    node.status({ fill: 'red', shape: 'ring', text: 'invalid JSON' });\n    return null;\n}\nd._ts = Date.now();\nd._dvcc = null;   // test bench: no GX/DVCC\nflow.set('teensyLastData', d._ts);\nflow.set('teensyFw', 'v' + d.fw);\nflow.set('teensyHw', d.hw || 'T32');   // Teensy model (firmware before v26.26 has no hw field: always a Teensy 3.2)\n// Report this Teensy for the port assignment (\"Assign Teensy ports\" in the main tab)\nconst sm = String(flow.get('teensyPort') || '').match(/_([0-9A-Za-z]+)-if\\d+$/);\nif (sm) {\n    const info = global.get('teensyInfo') || {};\n    info[sm[1]] = { me: d.me || 0, hw: d.hw || 'T32', ts: d._ts };\n    global.set('teensyInfo', info);\n}\nnode.status({ fill: 'green', shape: 'dot', text: `v${d.fw}  ${d.so}/${d.se} strings  ${d.lo}-${d.hi} V` });\n\n// History charts: every message goes to the \"History buffer\" (which keeps one point per 30 s)\n// (only once the Teensy ports are assigned for sure, so no data of the other Teensy ends up in it)\nif (!global.get('teensyRolesOk')) return [{ payload: d }, null];\nreturn [{ payload: d }, { payload: { t: d._ts, hi: d.hi, lo: d.lo, hiid: d.hiid, loid: d.loid, v: d.v, cvl: d.cvl } }];\n",
+    "func": "// One line of serial output from the Teensy.\n// Only lines that start with '{' are the JSON telemetry (menu m -> j on the Teensy);\n// all other lines (menus, messages) are ignored.\nconst line = String(msg.payload || '').trim();\nif (!line.startsWith('{')) {\n    // text (start banner, menu, messages): the Teensy lives, but sends no JSON right now\n    if (line) flow.set('teensyLastText', Date.now());\n    return null;\n}\nlet d;\ntry {\n    d = JSON.parse(line);\n} catch (e) {\n    node.status({ fill: 'red', shape: 'ring', text: 'invalid JSON' });\n    return null;\n}\nd._ts = Date.now();\nd._dvcc = null;   // test bench: no GX/DVCC\nflow.set('teensyLastData', d._ts);\nflow.set('teensyFw', 'v' + d.fw);\nflow.set('teensyHw', d.hw || 'T32');   // Teensy model (firmware before v26.26 has no hw field: always a Teensy 3.2)\n// Report this Teensy for the port assignment (\"Assign Teensy ports\" in the main tab)\nconst sm = String(flow.get('teensyPort') || '').match(/_([0-9A-Za-z]+)-if\\d+$/);\nif (sm) {\n    const info = global.get('teensyInfo') || {};\n    info[sm[1]] = { me: d.me || 0, hw: d.hw || 'T32', ts: d._ts };\n    global.set('teensyInfo', info);\n}\nnode.status({ fill: 'green', shape: 'dot', text: `v${d.fw}  ${d.so}/${d.se} strings  ${d.lo}-${d.hi} V` });\n\n// History charts: every message goes to the \"History buffer\" (which keeps one point per 30 s)\n// (only once the Teensy ports are assigned for sure, so no data of the other Teensy ends up in it)\nif (!global.get('teensyRolesOk')) return [{ payload: d }, null];\nreturn [{ payload: d }, { payload: { t: d._ts, hi: d.hi, lo: d.lo, hiid: d.hiid, loid: d.loid, v: d.v, cvl: d.cvl } }];\n",
     "outputs": 2,
     "timeout": 0,
     "noerr": 0,
@@ -1203,13 +1156,13 @@
     "id": "7b99f005ccf3be2c",
     "type": "inject",
     "z": "1c876e5c8d682a9e",
-    "name": "every 20 s",
+    "name": "every 60 s",
     "props": [
       {
         "p": "payload"
       }
     ],
-    "repeat": "20",
+    "repeat": "60",
     "crontab": "",
     "once": true,
     "onceDelay": "15",
@@ -1229,7 +1182,7 @@
     "type": "function",
     "z": "1c876e5c8d682a9e",
     "name": "JSON watchdog",
-    "func": "// No JSON from the Teensy for 20 s? Send 'J' (JSON output on + save in the Teensy).\n// At most once per 30 s. Also covers: new Teensy, EEPROM reset, firmware update.\nconst now = Date.now();\nconst last = flow.get('teensyLastData') || 0;\nconst sent = context.get('sent') || 0;\nif (now - last > 20000) {\n    if (now - sent > 30000) {\n        context.set('sent', now);\n        node.status({ fill: 'yellow', shape: 'ring', text: 'no JSON - sent J' });\n        return { payload: 'J\\n' };\n    }\n    return null;\n}\nnode.status({ fill: 'green', shape: 'dot', text: 'JSON is arriving' });\nreturn null;\n",
+    "func": "// Patient JSON watchdog (flow v26.48). Node-RED does NOT keep sending commands to the Teensy:\n// every byte would keep an open menu open (a technician at work, or stray bytes).\n//   JSON arrives                          -> nothing to do\n//   text, but no JSON for 3 min           -> 'J' once (JSON on); again at most every 10 min\n//   completely silent for 5 min           -> warning only (cable, technician, Teensy off);\n//                                            'J' at most every 15 min (closes a menu from fw v26.37)\nconst now = Date.now();\nconst last = flow.get('teensyLastData') || 0;\nconst text = flow.get('teensyLastText') || 0;\nconst sent = context.get('sent') || 0;\nconst ago = (t) => t ? Math.round((now - t) / 60000) + ' min' : 'never';\nif (now - last < 180000) {\n    node.status({ fill: 'green', shape: 'dot', text: 'JSON is arriving' });\n    return null;\n}\nif (text > last && now - text < 180000) {\n    if (now - sent > 600000) {\n        context.set('sent', now);\n        node.status({ fill: 'yellow', shape: 'ring', text: 'text instead of JSON - sent J' });\n        return { payload: 'J\\n' };\n    }\n    node.status({ fill: 'yellow', shape: 'ring', text: 'text instead of JSON (J sent ' + ago(sent) + ' ago)' });\n    return null;\n}\nif (now - Math.max(last, text) > 300000 && now - sent > 900000) {\n    context.set('sent', now);\n    node.status({ fill: 'red', shape: 'ring', text: 'Teensy silent for ' + ago(Math.max(last, text)) + ' - sent J' });\n    return { payload: 'J\\n' };\n}\nnode.status({ fill: 'yellow', shape: 'ring', text: 'no JSON for ' + ago(last) });\nreturn null;\n",
     "outputs": 1,
     "timeout": 0,
     "noerr": 0,
@@ -1278,7 +1231,7 @@
     "width": "12",
     "height": "0",
     "head": "",
-    "format": "<template>\n  <div class=\"upd\">\n    <div class=\"hd\" @click=\"open = !open\">\n      <span class=\"arrow\">{{ open ? '\\u25BE' : '\\u25B8' }}</span>\n      <span class=\"title\">Test Teensy: firmware &amp; balancing</span>\n      <span v-if=\"fwNew\" class=\"badge\">update available</span>\n      <span v-if=\"state && !open\" class=\"mini\">{{ state }}</span>\n    </div>\n    <div v-if=\"open\">\n    <div class=\"rows\">\n      <div class=\"row\">\n        <span class=\"k\">Teensy firmware<span v-if=\"boardName\"> ({{ boardName }})</span></span>\n        <span class=\"v\">{{ info.running || '-' }}</span>\n        <span class=\"k2\">latest</span>\n        <span class=\"v\">{{ info.latestFw || '-' }}</span>\n        <span v-if=\"fwNew\" class=\"badge\">update available</span>\n        <span v-else-if=\"info.latestFw && info.running\" class=\"ok\">up to date</span>\n      </div>\n    </div>\n    <div class=\"bal\">\n      <span class=\"k\">CAN protocol</span>\n      <button @click=\"setProto(0)\">Victron</button>\n      <button @click=\"setProto(1)\">LG RESU LV (SolarEdge)</button>\n      <span class=\"k2\">double click; current protocol: header of the overview (LG RESU sets 500 kbit/s)</span>\n    </div>\n    <div class=\"bal\">\n      <span class=\"k\">Battery voltage</span>\n      <button @click=\"setCells(6)\">24 V (6S)</button>\n      <button @click=\"setCells(12)\">48 V (12S)</button>\n      <span class=\"k2\">double click; strings are counted again (auto-detect)</span>\n    </div>\n    <div class=\"bal\">\n      <span class=\"k\">CAN speed</span>\n      <button @click=\"setKbit(250)\">250 kbit/s (VE.Can)</button>\n      <button @click=\"setKbit(500)\">500 kbit/s (BMS-Can / LG RESU)</button>\n      <span class=\"k2\">double click; current speed: CAN bus panel</span>\n    </div>\n    <div class=\"bal\">\n      <span class=\"k\">Balancing</span>\n      <label>start &gt; <input type=\"number\" v-model.number=\"balStart\" min=\"3\" max=\"100\" step=\"1\"> mV</label>\n      <label>down to <input type=\"number\" v-model.number=\"balStop\" min=\"2\" max=\"50\" step=\"1\"> mV</label>\n      <button @click=\"setBal\">Apply</button>\n      <span class=\"k2\">current values: Balancing tile</span>\n    </div>\n    <div class=\"btns\">\n      <button @click=\"go('fw')\" :class=\"{ hot: fwNew }\">Update Teensy firmware</button>\n    </div>\n    <div v-if=\"state\" class=\"state\"><span v-if=\"busy\" class=\"spin\"></span>{{ state }}</div>\n    <div v-if=\"info.error\" class=\"err\">{{ info.error }}</div>\n    <pre v-if=\"logText\" class=\"log\">{{ logText }}</pre>\n    <div class=\"hint\">Updates require a double click (confirmation within 10 s). During a firmware update the BMS is off for a few seconds; Victron stops charging/discharging and continues afterwards. This is the test bench Teensy: the dashboard itself is updated from the tab \"Tesla BMS\". The JSON output of the Teensy is switched on automatically by this flow.</div>\n    </div>\n  </div>\n</template>\n\n<script>\nexport default {\n  data() {\n    return { info: {}, state: '', logText: '', open: false, balStart: 7, balStop: 3 }\n  },\n  computed: {\n    boardName() { return ({ T32: 'Teensy 3.2', T40: 'Teensy 4.0', T41: 'Teensy 4.1' })[this.info.board] || '' },\n    fwNew() { return !!(this.info.latestFw && this.info.running && this.info.latestFw !== this.info.running) },\n    busy() { return /\\.\\.\\.|Sending/.test(this.state || '') },\n    flowNew() { return !!(this.info.latestFlow && this.info.flowInstalled && this.info.latestFlow !== this.info.flowInstalled) }\n  },\n  watch: {\n    msg: {\n      handler(m) {\n        if (!m || !m.payload) return\n        const p = m.payload\n        if (p.kind === 'info') { this.info = Object.assign({}, this.info, p.info || {}); if (p.state) this.state = p.state }\n        if (p.kind === 'state') this.state = p.text\n        if (p.kind === 'log') { this.logText = p.text; if (p.state) this.state = p.state }\n      },\n      immediate: true\n    }\n  },\n  methods: {\n    setCells(c) {\n      this.state = 'Sending...'\n      this.send({ topic: 'cells', payload: c })\n    },\n    setKbit(k) {\n      this.state = 'Sending...'\n      this.send({ topic: 'kbit', payload: k })\n    },\n    setProto(p) {\n      this.state = 'Sending...'\n      this.send({ topic: 'proto', payload: p })\n    },\n    setBal() {\n      const a = Math.round(this.balStart), b = Math.round(this.balStop)\n      if (!(b >= 2 && b <= 50 && a > b && a <= 100)) { this.state = 'Balancing: stop 2-50 mV, start greater than stop (max 100 mV)'; return }\n      this.state = 'Sending...'\n      this.send({ topic: 'bal', payload: { start: a, stop: b } })\n    },\n    go(t) {\n      // immediate feedback, the server answers within a moment\n      if (t === 'check') { this.state = 'Checking versions...'; this.logText = '' }\n      else this.state = 'Sending...'\n      this.send({ topic: t, payload: Date.now() })\n    }\n  }\n}\n</script>\n\n<style scoped>\n.upd { width: 100%; }\n.hd { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; padding: 2px 0 6px; }\n.arrow { width: 14px; opacity: 0.7; }\n.title { font-weight: 600; }\n.mini { font-size: 0.85em; opacity: 0.7; }\n.rows { display: grid; gap: 6px; margin-bottom: 10px; }\n.row { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }\n.k { min-width: 140px; opacity: 0.7; }\n.k2 { opacity: 0.6; font-size: 0.85em; }\n.v { font-weight: 600; font-variant-numeric: tabular-nums; }\n.badge { padding: 2px 8px; border-radius: 10px; background: rgba(210, 153, 34, 0.22); color: #b7791f; font-weight: 600; font-size: 0.85em; }\n.ok { color: #2ea043; font-size: 0.85em; font-weight: 600; }\n.btns { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }\n.btns button { padding: 7px 14px; border-radius: 6px; border: 1px solid rgba(127, 127, 127, 0.4); background: rgba(127, 127, 127, 0.08); cursor: pointer; font: inherit; color: inherit; }\n.btns button:hover { background: rgba(127, 127, 127, 0.18); }\n.btns button.hot { border-color: #b7791f; background: rgba(210, 153, 34, 0.18); }\n.state { font-weight: 600; margin: 6px 0; }\n.err { color: #da3633; margin: 6px 0; }\n.log { max-height: 220px; overflow: auto; font-size: 0.8em; background: rgba(127, 127, 127, 0.08); padding: 8px; border-radius: 6px; white-space: pre-wrap; }\n.spin { display: inline-block; width: 0.9em; height: 0.9em; margin-right: 8px; vertical-align: -0.1em; border: 2px solid rgba(127,127,127,0.35); border-top-color: currentColor; border-radius: 50%; animation: spin 0.8s linear infinite; }\n@keyframes spin { to { transform: rotate(360deg); } }\n.bal { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }\n.bal input { width: 4.5em; padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(127, 127, 127, 0.4); background: transparent; color: inherit; font: inherit; }\n.bal button { padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(127, 127, 127, 0.4); background: rgba(127, 127, 127, 0.08); cursor: pointer; font: inherit; color: inherit; }\n.hint { font-size: 0.8em; opacity: 0.65; margin-top: 6px; }\n</style>\n",
+    "format": "<template>\n  <div class=\"upd\">\n    <div class=\"hd\" @click=\"open = !open\">\n      <span class=\"arrow\">{{ open ? '\\u25BE' : '\\u25B8' }}</span>\n      <span class=\"title\">Test Teensy: firmware &amp; balancing</span>\n      <span v-if=\"fwNew\" class=\"badge\">update available</span>\n      <span v-if=\"state && !open\" class=\"mini\">{{ state }}</span>\n    </div>\n    <div v-if=\"open\">\n    <div class=\"rows\">\n      <div class=\"row\">\n        <span class=\"k\">Teensy firmware<span v-if=\"boardName\"> ({{ boardName }})</span></span>\n        <span class=\"v\">{{ info.running || '-' }}</span>\n        <span class=\"k2\">latest</span>\n        <span class=\"v\">{{ info.latestFw || '-' }}</span>\n        <span v-if=\"fwNew\" class=\"badge\">update available</span>\n        <span v-else-if=\"info.latestFw && info.running\" class=\"ok\">up to date</span>\n      </div>\n    </div>\n    <div class=\"bal\">\n      <span class=\"k\">CAN protocol</span>\n      <button @click=\"setProto(0)\">Victron</button>\n      <button @click=\"setProto(1)\">LG RESU LV (SolarEdge)</button>\n      <span class=\"k2\">double click; current protocol: header of the overview (LG RESU sets 500 kbit/s)</span>\n    </div>\n    <div class=\"bal\">\n      <span class=\"k\">Battery voltage</span>\n      <button @click=\"setCells(6)\">24 V (6S)</button>\n      <button @click=\"setCells(12)\">48 V (12S)</button>\n      <span class=\"k2\">double click; strings are counted again (auto-detect)</span>\n    </div>\n    <div class=\"bal\">\n      <span class=\"k\">CAN speed</span>\n      <button @click=\"setKbit(250)\">250 kbit/s (VE.Can)</button>\n      <button @click=\"setKbit(500)\">500 kbit/s (BMS-Can / LG RESU)</button>\n      <span class=\"k2\">double click; current speed: CAN bus panel</span>\n    </div>\n    <div class=\"bal\">\n      <span class=\"k\">Balancing</span>\n      <label>start &gt; <input type=\"number\" v-model.number=\"balStart\" min=\"3\" max=\"100\" step=\"1\"> mV</label>\n      <label>down to <input type=\"number\" v-model.number=\"balStop\" min=\"2\" max=\"50\" step=\"1\"> mV</label>\n      <label>from cell &gt; <input type=\"number\" v-model.number=\"balFrom\" min=\"3300\" max=\"4150\" step=\"10\"> mV</label>\n      <button @click=\"setBal\">Apply</button>\n      <span class=\"k2\">current values: Balancing tile</span>\n    </div>\n    <div class=\"btns\">\n      <button @click=\"go('fw')\" :class=\"{ hot: fwNew }\">Update Teensy firmware</button>\n    </div>\n    <div v-if=\"state\" class=\"state\"><span v-if=\"busy\" class=\"spin\"></span>{{ state }}</div>\n    <div v-if=\"info.error\" class=\"err\">{{ info.error }}</div>\n    <pre v-if=\"logText\" class=\"log\">{{ logText }}</pre>\n    <div class=\"hint\">Updates require a double click (confirmation within 10 s). During a firmware update the BMS is off for a few seconds; Victron stops charging/discharging and continues afterwards. This is the test bench Teensy: the dashboard itself is updated from the tab \"Tesla BMS\". The JSON output of the Teensy is switched on automatically by this flow.</div>\n    </div>\n  </div>\n</template>\n\n<script>\nexport default {\n  data() {\n    return { info: {}, state: '', logText: '', open: false, balStart: 7, balStop: 3, balFrom: 3900 }\n  },\n  computed: {\n    boardName() { return ({ T32: 'Teensy 3.2', T40: 'Teensy 4.0', T41: 'Teensy 4.1' })[this.info.board] || '' },\n    fwNew() { return !!(this.info.latestFw && this.info.running && this.info.latestFw !== this.info.running) },\n    busy() { return /\\.\\.\\.|Sending/.test(this.state || '') },\n    flowNew() { return !!(this.info.latestFlow && this.info.flowInstalled && this.info.latestFlow !== this.info.flowInstalled) }\n  },\n  watch: {\n    msg: {\n      handler(m) {\n        if (!m || !m.payload) return\n        const p = m.payload\n        if (p.kind === 'info') { this.info = Object.assign({}, this.info, p.info || {}); if (p.state) this.state = p.state }\n        if (p.kind === 'state') this.state = p.text\n        if (p.kind === 'log') { this.logText = p.text; if (p.state) this.state = p.state }\n      },\n      immediate: true\n    }\n  },\n  methods: {\n    setCells(c) {\n      this.state = 'Sending...'\n      this.send({ topic: 'cells', payload: c })\n    },\n    setKbit(k) {\n      this.state = 'Sending...'\n      this.send({ topic: 'kbit', payload: k })\n    },\n    setProto(p) {\n      this.state = 'Sending...'\n      this.send({ topic: 'proto', payload: p })\n    },\n    setBal() {\n      const a = Math.round(this.balStart), b = Math.round(this.balStop), v = Math.round(this.balFrom)\n      if (!(b >= 2 && b <= 50 && a > b && a <= 100)) { this.state = 'Balancing: stop 2-50 mV, start greater than stop (max 100 mV)'; return }\n      if (!(v >= 3300 && v <= 4150)) { this.state = 'Balancing: from cell voltage 3300-4150 mV'; return }\n      this.state = 'Sending...'\n      this.send({ topic: 'bal', payload: { start: a, stop: b, from: v } })\n    },\n    go(t) {\n      // immediate feedback, the server answers within a moment\n      if (t === 'check') { this.state = 'Checking versions...'; this.logText = '' }\n      else this.state = 'Sending...'\n      this.send({ topic: t, payload: Date.now() })\n    }\n  }\n}\n</script>\n\n<style scoped>\n.upd { width: 100%; }\n.hd { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; padding: 2px 0 6px; }\n.arrow { width: 14px; opacity: 0.7; }\n.title { font-weight: 600; }\n.mini { font-size: 0.85em; opacity: 0.7; }\n.rows { display: grid; gap: 6px; margin-bottom: 10px; }\n.row { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }\n.k { min-width: 140px; opacity: 0.7; }\n.k2 { opacity: 0.6; font-size: 0.85em; }\n.v { font-weight: 600; font-variant-numeric: tabular-nums; }\n.badge { padding: 2px 8px; border-radius: 10px; background: rgba(210, 153, 34, 0.22); color: #b7791f; font-weight: 600; font-size: 0.85em; }\n.ok { color: #2ea043; font-size: 0.85em; font-weight: 600; }\n.btns { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }\n.btns button { padding: 7px 14px; border-radius: 6px; border: 1px solid rgba(127, 127, 127, 0.4); background: rgba(127, 127, 127, 0.08); cursor: pointer; font: inherit; color: inherit; }\n.btns button:hover { background: rgba(127, 127, 127, 0.18); }\n.btns button.hot { border-color: #b7791f; background: rgba(210, 153, 34, 0.18); }\n.state { font-weight: 600; margin: 6px 0; }\n.err { color: #da3633; margin: 6px 0; }\n.log { max-height: 220px; overflow: auto; font-size: 0.8em; background: rgba(127, 127, 127, 0.08); padding: 8px; border-radius: 6px; white-space: pre-wrap; }\n.spin { display: inline-block; width: 0.9em; height: 0.9em; margin-right: 8px; vertical-align: -0.1em; border: 2px solid rgba(127,127,127,0.35); border-top-color: currentColor; border-radius: 50%; animation: spin 0.8s linear infinite; }\n@keyframes spin { to { transform: rotate(360deg); } }\n.bal { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }\n.bal input { width: 4.5em; padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(127, 127, 127, 0.4); background: transparent; color: inherit; font: inherit; }\n.bal button { padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(127, 127, 127, 0.4); background: rgba(127, 127, 127, 0.08); cursor: pointer; font: inherit; color: inherit; }\n.hint { font-size: 0.8em; opacity: 0.65; margin-top: 6px; }\n</style>\n",
     "storeOutMessages": true,
     "passthru": false,
     "resendOnRefresh": true,
@@ -1367,7 +1320,7 @@
     "type": "function",
     "z": "1c876e5c8d682a9e",
     "name": "Router test (info / fw / balancing)",
-    "func": "// Test bench Teensy: firmware update (double click), balancing, version info.\n// Outputs: flash exec, ui, Teensy serial.\nconst now = Date.now();\nconst t = msg.topic;\nconst ui = (text) => ({ payload: { kind: 'state', text: text } });\nif (t === 'check' || t === 'info') {\n    const info = { running: flow.get('teensyFw') || null, board: flow.get('teensyHw') || null,\n                   latestFw: global.get('teslabmsLatestFw') || null };\n    return [null, { payload: { kind: 'info', info: info } }, null];\n}\nif (t === 'cells') {\n    // cells in series per string: 6 = 24 V, 12 = 48 V. Double click (10 s).\n    const c = [6, 12].includes(Number(msg.payload)) ? Number(msg.payload) : 0;\n    if (!c) return [null, ui('Battery voltage: invalid value'), null];\n    const armed = context.get('armedCells') || {};\n    if (armed.c === c && (now - armed.at) < 10000) {\n        context.set('armedCells', {});\n        return [null, ui('Sent: ' + c + ' cells in series (needs firmware v26.36)'), { payload: 'C' + c + '\\n' }];\n    }\n    context.set('armedCells', { c: c, at: now });\n    return [null, ui('Click again within 10 s to set ' + c + ' cells in series (' + (c === 6 ? '24' : '48') + ' V)'), null];\n}\nif (t === 'kbit') {\n    // CAN speed of the Teensy (kbit/s). Double click (10 s).\n    const k = [125, 250, 500, 1000].includes(Number(msg.payload)) ? Number(msg.payload) : 0;\n    if (!k) return [null, ui('CAN speed: invalid value'), null];\n    const armed = context.get('armedKbit') || {};\n    if (armed.k === k && (now - armed.at) < 10000) {\n        context.set('armedKbit', {});\n        return [null, ui('CAN speed sent: ' + k + ' kbit/s (needs firmware v26.35)'), { payload: 'K' + k + '\\n' }];\n    }\n    context.set('armedKbit', { k: k, at: now });\n    return [null, ui('Click again within 10 s to set the CAN speed to ' + k + ' kbit/s'), null];\n}\nif (t === 'proto') {\n    // CAN protocol to the inverter: 0 Victron, 1 LG RESU LV (SolarEdge). Double click (10 s).\n    const p = Number(msg.payload) === 1 ? 1 : 0;\n    const armed = context.get('armedProto') || {};\n    if (armed.p === p && (now - armed.at) < 10000) {\n        context.set('armedProto', {});\n        return [null, ui('CAN protocol sent: ' + (p ? 'LG RESU LV (SolarEdge)' : 'Victron') + ' (needs firmware v26.29)'), { payload: 'P' + p + '\\n' }];\n    }\n    context.set('armedProto', { p: p, at: now });\n    return [null, ui('Click again within 10 s to switch the CAN protocol to ' + (p ? 'LG RESU LV (SolarEdge)' : 'Victron')), null];\n}\nif (t === 'bal') {\n    const p = msg.payload || {};\n    const a = Math.round(Number(p.start)), b = Math.round(Number(p.stop));\n    if (!(b >= 2 && b <= 50 && a > b && a <= 100)) return [null, ui('Balancing: invalid values'), null];\n    return [null, ui(`Balancing sent: start > ${a} mV, down to ${b} mV`), { payload: `B${a},${b}\\n` }];\n}\nif (t === 'fw') {\n    if (flow.get('teslabmsBusy')) return [null, ui('An update is already running - please wait'), null];\n    const gb = global.get('teslabmsFlashBusy') || 0;\n    if (now - gb < 300000) return [null, ui('A firmware update of the other Teensy is running - please wait'), null];\n    const armed = context.get('armed') || {};\n    if (armed.t === t && (now - armed.at) < 10000) {\n        context.set('armed', {});\n        const hw = flow.get('teensyHw') || 'auto';\n        const port = flow.get('teensyPort');\n        if (!port) return [null, ui('Test Teensy port unknown - wait until data arrives'), null];\n        flow.set('teslabmsBusy', true);\n        global.set('teslabmsFlashBusy', now);\n        node.status({ fill: 'yellow', shape: 'dot', text: 'flashing test Teensy...' });\n        return [{ payload: '--board ' + hw + ' --port ' + port }, ui('Test Teensy firmware update running...'), null];\n    }\n    context.set('armed', { t: t, at: now });\n    return [null, ui('Click \"Update Teensy firmware\" again within 10 seconds to confirm.'), null];\n}\nreturn null;\n",
+    "func": "// Test bench Teensy: firmware update (double click), balancing, version info.\n// Outputs: flash exec, ui, Teensy serial.\nconst now = Date.now();\nconst t = msg.topic;\nconst ui = (text) => ({ payload: { kind: 'state', text: text } });\nif (t === 'check' || t === 'info') {\n    const info = { running: flow.get('teensyFw') || null, board: flow.get('teensyHw') || null,\n                   latestFw: global.get('teslabmsLatestFw') || null };\n    return [null, { payload: { kind: 'info', info: info } }, null];\n}\nif (t === 'cells') {\n    // cells in series per string: 6 = 24 V, 12 = 48 V. Double click (10 s).\n    const c = [6, 12].includes(Number(msg.payload)) ? Number(msg.payload) : 0;\n    if (!c) return [null, ui('Battery voltage: invalid value'), null];\n    const armed = context.get('armedCells') || {};\n    if (armed.c === c && (now - armed.at) < 10000) {\n        context.set('armedCells', {});\n        return [null, ui('Sent: ' + c + ' cells in series (needs firmware v26.36)'), { payload: 'C' + c + '\\n' }];\n    }\n    context.set('armedCells', { c: c, at: now });\n    return [null, ui('Click again within 10 s to set ' + c + ' cells in series (' + (c === 6 ? '24' : '48') + ' V)'), null];\n}\nif (t === 'kbit') {\n    // CAN speed of the Teensy (kbit/s). Double click (10 s).\n    const k = [125, 250, 500, 1000].includes(Number(msg.payload)) ? Number(msg.payload) : 0;\n    if (!k) return [null, ui('CAN speed: invalid value'), null];\n    const armed = context.get('armedKbit') || {};\n    if (armed.k === k && (now - armed.at) < 10000) {\n        context.set('armedKbit', {});\n        return [null, ui('CAN speed sent: ' + k + ' kbit/s (needs firmware v26.35)'), { payload: 'K' + k + '\\n' }];\n    }\n    context.set('armedKbit', { k: k, at: now });\n    return [null, ui('Click again within 10 s to set the CAN speed to ' + k + ' kbit/s'), null];\n}\nif (t === 'proto') {\n    // CAN protocol to the inverter: 0 Victron, 1 LG RESU LV (SolarEdge). Double click (10 s).\n    const p = Number(msg.payload) === 1 ? 1 : 0;\n    const armed = context.get('armedProto') || {};\n    if (armed.p === p && (now - armed.at) < 10000) {\n        context.set('armedProto', {});\n        return [null, ui('CAN protocol sent: ' + (p ? 'LG RESU LV (SolarEdge)' : 'Victron') + ' (needs firmware v26.29)'), { payload: 'P' + p + '\\n' }];\n    }\n    context.set('armedProto', { p: p, at: now });\n    return [null, ui('Click again within 10 s to switch the CAN protocol to ' + (p ? 'LG RESU LV (SolarEdge)' : 'Victron')), null];\n}\nif (t === 'bal') {\n    const p = msg.payload || {};\n    const a = Math.round(Number(p.start)), b = Math.round(Number(p.stop)), v = Math.round(Number(p.from));\n    if (!(b >= 2 && b <= 50 && a > b && a <= 100)) return [null, ui('Balancing: invalid values'), null];\n    if (!(v >= 3300 && v <= 4150)) return [null, ui('Balancing: from cell voltage 3300-4150 mV'), null];\n    return [null, ui(`Balancing sent: from cell > ${v} mV, start > ${a} mV, down to ${b} mV`), { payload: `B${a},${b},${v}\\n` }];\n}\nif (t === 'fw') {\n    if (flow.get('teslabmsBusy')) return [null, ui('An update is already running - please wait'), null];\n    const gb = global.get('teslabmsFlashBusy') || 0;\n    if (now - gb < 300000) return [null, ui('A firmware update of the other Teensy is running - please wait'), null];\n    const armed = context.get('armed') || {};\n    if (armed.t === t && (now - armed.at) < 10000) {\n        context.set('armed', {});\n        const hw = flow.get('teensyHw') || 'auto';\n        const port = flow.get('teensyPort');\n        if (!port) return [null, ui('Test Teensy port unknown - wait until data arrives'), null];\n        flow.set('teslabmsBusy', true);\n        global.set('teslabmsFlashBusy', now);\n        node.status({ fill: 'yellow', shape: 'dot', text: 'flashing test Teensy...' });\n        return [{ payload: '--board ' + hw + ' --port ' + port }, ui('Test Teensy firmware update running...'), null];\n    }\n    context.set('armed', { t: t, at: now });\n    return [null, ui('Click \"Update Teensy firmware\" again within 10 seconds to confirm.'), null];\n}\nreturn null;\n",
     "outputs": 3,
     "timeout": 0,
     "noerr": 0,
@@ -1433,7 +1386,7 @@
     "type": "function",
     "z": "1c876e5c8d682a9e",
     "name": "Set test port",
-    "func": "// Port of the test bench Teensy, decided by \"Assign Teensy ports\" in the tab \"Tesla BMS\".\nconst port = msg.payload;\nif (!port) {\n    node.status({ fill: 'grey', shape: 'ring', text: 'no test Teensy connected' });\n    // No test Teensy (any more): release the port. Otherwise this tab keeps reading the Teensy it had\n    // before - e.g. one that has just become the main battery - and both tabs share its data.\n    if (flow.get('teensyPort')) {\n        flow.set('teensyPort', null);\n        return { payload: '/dev/teslabms-no-test-teensy /data/home/nodered/.node-red/teslabms-tty-test' };   // -> ln -sfn -> reopen (fails: port released)\n    }\n    return null;\n}\nconst now = Date.now();\nconst cur = flow.get('teensyPort');\nconst silent = (now - (flow.get('teensyLastData') || 0)) > 60000;\nconst lr = context.get('lastReconnect') || 0;\nnode.status({ fill: 'green', shape: 'dot', text: port.replace('/dev/serial/by-id/', '') });\nif (port !== cur || (silent && now - lr > 60000)) {\n    if (port !== cur) { flow.set('teensyHw', null); flow.set('teensyFw', null); }\n    flow.set('teensyPort', port);\n    context.set('lastReconnect', now);\n    return { payload: port + ' /data/home/nodered/.node-red/teslabms-tty-test' };   // -> ln -sfn <Teensy> <test link> -> reopen\n}\nreturn null;\n",
+    "func": "// Port of the test bench Teensy, decided by \"Assign Teensy ports\" in the tab \"Tesla BMS\".\nconst port = msg.payload;\nif (!port) {\n    node.status({ fill: 'grey', shape: 'ring', text: 'no test Teensy connected' });\n    // No test Teensy (any more): release the port. Otherwise this tab keeps reading the Teensy it had\n    // before - e.g. one that has just become the main battery - and both tabs share its data.\n    if (flow.get('teensyPort')) {\n        flow.set('teensyPort', null);\n        return { payload: '/dev/teslabms-no-test-teensy /data/home/nodered/.node-red/teslabms-tty-test' };   // -> ln -sfn -> reopen (fails: port released)\n    }\n    return null;\n}\nconst now = Date.now();\nconst cur = flow.get('teensyPort');\nconst silent = (now - Math.max(flow.get('teensyLastData') || 0, flow.get('teensyLastText') || 0)) > 600000;\nconst lr = context.get('lastReconnect') || 0;\nnode.status({ fill: 'green', shape: 'dot', text: port.replace('/dev/serial/by-id/', '') });\nif (port !== cur || (silent && now - lr > 600000)) {\n    if (port !== cur) { flow.set('teensyHw', null); flow.set('teensyFw', null); }\n    flow.set('teensyPort', port);\n    context.set('lastReconnect', now);\n    return { payload: port + ' /data/home/nodered/.node-red/teslabms-tty-test' };   // -> ln -sfn <Teensy> <test link> -> reopen\n}\nreturn null;\n",
     "outputs": 1,
     "timeout": 0,
     "noerr": 0,
@@ -1613,53 +1566,6 @@
     "x": 330,
     "y": 40,
     "wires": []
-  },
-  {
-    "id": "96993715530ed0de",
-    "type": "inject",
-    "z": "144e61c5c165398e",
-    "name": "every 5 s",
-    "props": [
-      {
-        "p": "payload"
-      }
-    ],
-    "repeat": "5",
-    "crontab": "",
-    "once": true,
-    "onceDelay": "15",
-    "topic": "",
-    "payload": "",
-    "payloadType": "date",
-    "x": 120,
-    "y": 100,
-    "wires": [
-      [
-        "2cd79a43c9aca60d"
-      ]
-    ]
-  },
-  {
-    "id": "2cd79a43c9aca60d",
-    "type": "exec",
-    "z": "144e61c5c165398e",
-    "name": "grid + Victron battery (dbus)",
-    "command": "for p in /Ac/Grid/L1/Power /Ac/Grid/L2/Power /Ac/Grid/L3/Power /Dc/Battery/Power /Dc/Battery/Soc; do echo \"$p=$(dbus -y com.victronenergy.system $p GetValue 2>/dev/null)\"; done",
-    "addpay": "",
-    "append": "",
-    "useSpawn": "false",
-    "timer": "4",
-    "winHide": false,
-    "oldrc": false,
-    "x": 320,
-    "y": 100,
-    "wires": [
-      [
-        "9cf13cb388fbc2a0"
-      ],
-      [],
-      []
-    ]
   },
   {
     "id": "9cf13cb388fbc2a0",
@@ -2047,59 +1953,12 @@
     "wires": []
   },
   {
-    "id": "c14357705dc8cffd",
-    "type": "inject",
-    "z": "5fce40a6fa720026",
-    "name": "every 10 s",
-    "props": [
-      {
-        "p": "payload"
-      }
-    ],
-    "repeat": "10",
-    "crontab": "",
-    "once": true,
-    "onceDelay": "20",
-    "topic": "",
-    "payload": "",
-    "payloadType": "date",
-    "x": 130,
-    "y": 580,
-    "wires": [
-      [
-        "3d61f5025fc59342"
-      ]
-    ]
-  },
-  {
-    "id": "3d61f5025fc59342",
-    "type": "exec",
-    "z": "5fce40a6fa720026",
-    "name": "battery monitors on the GX (dbus)",
-    "command": "for s in $(dbus -y 2>/dev/null | grep '^com.victronenergy.battery'); do echo \"BAT|$s|$(dbus -y $s /ProductName GetValue 2>/dev/null)|$(dbus -y $s /Soc GetValue 2>/dev/null)|$(dbus -y $s /Dc/0/Current GetValue 2>/dev/null)\"; done",
-    "addpay": "",
-    "append": "",
-    "useSpawn": "false",
-    "timer": "8",
-    "winHide": false,
-    "oldrc": false,
-    "x": 350,
-    "y": 580,
-    "wires": [
-      [
-        "f6c9062c9574f06e"
-      ],
-      [],
-      []
-    ]
-  },
-  {
     "id": "f6c9062c9574f06e",
     "type": "function",
     "z": "5fce40a6fa720026",
     "name": "shunt SOC -> Teensy",
     "outputs": 1,
-    "func": "// Battery monitor (Lynx shunt, SmartShunt, BMV) on this GX -> SOC and current to the Teensy over USB:\n// \"S<soc>,<current A>\". The Teensy uses it while it is fresh (< 60 s), otherwise its own SOC\n// (coulomb count or cell voltage). Tab variable TESLABMS_SOC_SOURCE:\n//   auto  = the first battery service whose product name contains Lynx / Shunt / BMV (default)\n//   off   = do not send anything\n//   <service name>, e.g. com.victronenergy.battery.ttyO2 = exactly that one\n// The Teensy's own battery service (BMS over CAN) is never used.\nconst mode = String(env.get('TESLABMS_SOC_SOURCE') || 'auto').trim();\nif (mode === 'off' || mode === '') { node.status({ fill: 'grey', shape: 'ring', text: 'off' }); return null; }\nconst rows = String(msg.payload || '').split('\\n').filter(l => l.startsWith('BAT|')).map(l => {\n    const p = l.split('|');\n    const num = (x) => { const v = parseFloat(String(x).replace(/[^0-9.eE+-]/g, '')); return isFinite(v) ? v : null; };\n    return { svc: p[1], name: String(p[2] || '').replace(/^'|'$/g, ''), soc: num(p[3]), cur: num(p[4]) };\n});\nlet b = null;\nif (mode === 'auto') b = rows.find(r => /lynx|shunt|bmv/i.test(r.name) && r.soc !== null);\nelse b = rows.find(r => r.svc === mode && r.soc !== null);\nif (!b) {\n    node.status({ fill: 'grey', shape: 'ring', text: rows.length ? 'no shunt (' + rows.map(r => r.name || r.svc).join(', ') + ')' : 'no battery monitor on this GX' });\n    return null;\n}\nconst cur = b.cur === null ? 0 : b.cur;\nnode.status({ fill: 'green', shape: 'dot', text: b.name + ': ' + b.soc.toFixed(1) + ' %, ' + cur.toFixed(1) + ' A' });\nreturn { payload: 'S' + b.soc.toFixed(1) + ',' + cur.toFixed(1) + '\\n' };\n",
+    "func": "// Battery monitor (Lynx shunt, SmartShunt, BMV) on this GX -> SOC and current to the Teensy over USB:\n// \"S<soc>,<current A>\". The Teensy uses it while it is fresh (< 60 s), otherwise its own SOC\n// (coulomb count or cell voltage). Tab variable TESLABMS_SOC_SOURCE:\n//   auto  = the first battery service whose product name contains Lynx / Shunt / BMV (default)\n//   off   = do not send anything\n//   <service name>, e.g. com.victronenergy.battery.ttyO2 = exactly that one\n// The Teensy's own battery service (BMS over CAN) is never used.\nconst mode = String(env.get('TESLABMS_SOC_SOURCE') || 'auto').trim();\nif (mode === 'off' || mode === '') { node.status({ fill: 'grey', shape: 'ring', text: 'off' }); return null; }\n// Only while the Teensy sends JSON: otherwise it may be in a menu (technician) and the\n// characters of 'S..' would be read as menu keys.\nif (Date.now() - (flow.get('teensyLastData') || 0) > 30000) { node.status({ fill: 'grey', shape: 'ring', text: 'Teensy sends no JSON - nothing sent' }); return null; }\nconst rows = String(msg.payload || '').split('\\n').filter(l => l.startsWith('BAT|')).map(l => {\n    const p = l.split('|');\n    const num = (x) => { const v = parseFloat(String(x).replace(/[^0-9.eE+-]/g, '')); return isFinite(v) ? v : null; };\n    return { svc: p[1], name: String(p[2] || '').replace(/^'|'$/g, ''), soc: num(p[3]), cur: num(p[4]) };\n});\nlet b = null;\nif (mode === 'auto') b = rows.find(r => /lynx|shunt|bmv/i.test(r.name) && r.soc !== null);\nelse b = rows.find(r => r.svc === mode && r.soc !== null);\nif (!b) {\n    node.status({ fill: 'grey', shape: 'ring', text: rows.length ? 'no shunt (' + rows.map(r => r.name || r.svc).join(', ') + ')' : 'no battery monitor on this GX' });\n    return null;\n}\nconst cur = b.cur === null ? 0 : b.cur;\nnode.status({ fill: 'green', shape: 'dot', text: b.name + ': ' + b.soc.toFixed(1) + ' %, ' + cur.toFixed(1) + ' A' });\nreturn { payload: 'S' + b.soc.toFixed(1) + ',' + cur.toFixed(1) + '\\n' };\n",
     "timeout": 0,
     "noerr": 0,
     "initialize": "",
@@ -2478,7 +2337,7 @@
     "type": "function",
     "z": "5fce40a6fa720026",
     "name": "Settings guard (restore after EEPROM reset)",
-    "func": "// Remembers the settings of each Teensy (by USB serial number) and restores them when the\n// Teensy reports that its EEPROM was reset (\"er\": 1) - a Teensy 4 firmware update erases it.\n// Settings: cells in series (C), CAN protocol (P), CAN speed (K), balancing start/stop (B).\n// Saved in teslabms-teensy-settings.json (shared by both tabs).\nconst d = msg.payload;\nif (!d || d.sc === undefined) return null;                  // firmware before v26.36: nothing to do\nconst sm = String(flow.get('teensyPort') || '').match(/_([0-9A-Za-z]+)-if\\d+$/);\nif (!sm) return null;\nconst ser = sm[1];\nconst all = global.get('teensySettings') || {};\nconst cur = { sc: d.sc, ip: d.ip, kb: d.cb ? d.cb.kb : null, bs: d.bs, bh: d.bh };\nif (d.er === 1) {\n    const want = all[ser];\n    if (!want) { node.status({ fill: 'grey', shape: 'ring', text: ser + ': defaults, nothing saved yet' }); return null; }\n    const last = context.get('restoreAt') || 0;\n    if (Date.now() - last < 60000) return null;            // at most once a minute\n    context.set('restoreAt', Date.now());\n    const cmds = ['C' + (want.sc || cur.sc)];               // always one command: clears the reset flag\n    if (want.ip !== undefined && want.ip !== null && want.ip !== cur.ip) cmds.push('P' + want.ip);\n    if (want.kb && want.kb !== cur.kb && !(want.ip === 1 && want.kb === 500)) cmds.push('K' + want.kb);\n    if (want.bs && want.bh && (want.bs !== cur.bs || want.bh !== cur.bh)) cmds.push('B' + Math.round(want.bs * 1000) + ',' + Math.round(want.bh * 1000));\n    node.status({ fill: 'yellow', shape: 'dot', text: ser + ': EEPROM was reset, restoring ' + cmds.join(' ') });\n    return [{ payload: cmds.join('\\n') + '\\n' }, null];\n}\nconst before = JSON.stringify(all[ser] || null);\nif (before !== JSON.stringify(cur)) {\n    all[ser] = cur;\n    global.set('teensySettings', all);\n    node.status({ fill: 'green', shape: 'dot', text: ser + ': ' + cur.sc + 'S, protocol ' + cur.ip + ', ' + cur.kb + ' kbit/s, bal ' + cur.bs + '/' + cur.bh });\n    return [null, { payload: JSON.stringify(all) }];\n}\nreturn null;\n",
+    "func": "// Remembers the settings of each Teensy (by USB serial number) and restores them when the\n// Teensy reports that its EEPROM was reset (\"er\": 1) - a Teensy 4 firmware update erases it.\n// Settings: cells in series (C), CAN protocol (P), CAN speed (K), balancing start/stop (B).\n// Saved in teslabms-teensy-settings.json (shared by both tabs).\nconst d = msg.payload;\nif (!d || d.sc === undefined) return null;                  // firmware before v26.36: nothing to do\nconst sm = String(flow.get('teensyPort') || '').match(/_([0-9A-Za-z]+)-if\\d+$/);\nif (!sm) return null;\nconst ser = sm[1];\nconst all = global.get('teensySettings') || {};\nconst cur = { sc: d.sc, ip: d.ip, kb: d.cb ? d.cb.kb : null, bs: d.bs, bh: d.bh, bv: d.bv };\nif (d.er === 1) {\n    const want = all[ser];\n    if (!want) { node.status({ fill: 'grey', shape: 'ring', text: ser + ': defaults, nothing saved yet' }); return null; }\n    const last = context.get('restoreAt') || 0;\n    if (Date.now() - last < 60000) return null;            // at most once a minute\n    context.set('restoreAt', Date.now());\n    const cmds = ['C' + (want.sc || cur.sc)];               // always one command: clears the reset flag\n    if (want.ip !== undefined && want.ip !== null && want.ip !== cur.ip) cmds.push('P' + want.ip);\n    if (want.kb && want.kb !== cur.kb && !(want.ip === 1 && want.kb === 500)) cmds.push('K' + want.kb);\n    if (want.bs && want.bh && (want.bs !== cur.bs || want.bh !== cur.bh || (want.bv && want.bv !== cur.bv)))\n        cmds.push('B' + Math.round(want.bs * 1000) + ',' + Math.round(want.bh * 1000) + (want.bv ? ',' + Math.round(want.bv * 1000) : ''));\n    node.status({ fill: 'yellow', shape: 'dot', text: ser + ': EEPROM was reset, restoring ' + cmds.join(' ') });\n    return [{ payload: cmds.join('\\n') + '\\n' }, null];\n}\nconst before = JSON.stringify(all[ser] || null);\nif (before !== JSON.stringify(cur)) {\n    all[ser] = cur;\n    global.set('teensySettings', all);\n    node.status({ fill: 'green', shape: 'dot', text: ser + ': ' + cur.sc + 'S, protocol ' + cur.ip + ', ' + cur.kb + ' kbit/s, bal ' + cur.bs + '/' + cur.bh });\n    return [null, { payload: JSON.stringify(all) }];\n}\nreturn null;\n",
     "outputs": 2,
     "outputLabels": [
       "commands to the Teensy",
@@ -2522,7 +2381,7 @@
     "type": "function",
     "z": "1c876e5c8d682a9e",
     "name": "Settings guard (restore after EEPROM reset)",
-    "func": "// Remembers the settings of each Teensy (by USB serial number) and restores them when the\n// Teensy reports that its EEPROM was reset (\"er\": 1) - a Teensy 4 firmware update erases it.\n// Settings: cells in series (C), CAN protocol (P), CAN speed (K), balancing start/stop (B).\n// Saved in teslabms-teensy-settings.json (shared by both tabs).\nconst d = msg.payload;\nif (!d || d.sc === undefined) return null;                  // firmware before v26.36: nothing to do\nconst sm = String(flow.get('teensyPort') || '').match(/_([0-9A-Za-z]+)-if\\d+$/);\nif (!sm) return null;\nconst ser = sm[1];\nconst all = global.get('teensySettings') || {};\nconst cur = { sc: d.sc, ip: d.ip, kb: d.cb ? d.cb.kb : null, bs: d.bs, bh: d.bh };\nif (d.er === 1) {\n    const want = all[ser];\n    if (!want) { node.status({ fill: 'grey', shape: 'ring', text: ser + ': defaults, nothing saved yet' }); return null; }\n    const last = context.get('restoreAt') || 0;\n    if (Date.now() - last < 60000) return null;            // at most once a minute\n    context.set('restoreAt', Date.now());\n    const cmds = ['C' + (want.sc || cur.sc)];               // always one command: clears the reset flag\n    if (want.ip !== undefined && want.ip !== null && want.ip !== cur.ip) cmds.push('P' + want.ip);\n    if (want.kb && want.kb !== cur.kb && !(want.ip === 1 && want.kb === 500)) cmds.push('K' + want.kb);\n    if (want.bs && want.bh && (want.bs !== cur.bs || want.bh !== cur.bh)) cmds.push('B' + Math.round(want.bs * 1000) + ',' + Math.round(want.bh * 1000));\n    node.status({ fill: 'yellow', shape: 'dot', text: ser + ': EEPROM was reset, restoring ' + cmds.join(' ') });\n    return [{ payload: cmds.join('\\n') + '\\n' }, null];\n}\nconst before = JSON.stringify(all[ser] || null);\nif (before !== JSON.stringify(cur)) {\n    all[ser] = cur;\n    global.set('teensySettings', all);\n    node.status({ fill: 'green', shape: 'dot', text: ser + ': ' + cur.sc + 'S, protocol ' + cur.ip + ', ' + cur.kb + ' kbit/s, bal ' + cur.bs + '/' + cur.bh });\n    return [null, { payload: JSON.stringify(all) }];\n}\nreturn null;\n",
+    "func": "// Remembers the settings of each Teensy (by USB serial number) and restores them when the\n// Teensy reports that its EEPROM was reset (\"er\": 1) - a Teensy 4 firmware update erases it.\n// Settings: cells in series (C), CAN protocol (P), CAN speed (K), balancing start/stop (B).\n// Saved in teslabms-teensy-settings.json (shared by both tabs).\nconst d = msg.payload;\nif (!d || d.sc === undefined) return null;                  // firmware before v26.36: nothing to do\nconst sm = String(flow.get('teensyPort') || '').match(/_([0-9A-Za-z]+)-if\\d+$/);\nif (!sm) return null;\nconst ser = sm[1];\nconst all = global.get('teensySettings') || {};\nconst cur = { sc: d.sc, ip: d.ip, kb: d.cb ? d.cb.kb : null, bs: d.bs, bh: d.bh, bv: d.bv };\nif (d.er === 1) {\n    const want = all[ser];\n    if (!want) { node.status({ fill: 'grey', shape: 'ring', text: ser + ': defaults, nothing saved yet' }); return null; }\n    const last = context.get('restoreAt') || 0;\n    if (Date.now() - last < 60000) return null;            // at most once a minute\n    context.set('restoreAt', Date.now());\n    const cmds = ['C' + (want.sc || cur.sc)];               // always one command: clears the reset flag\n    if (want.ip !== undefined && want.ip !== null && want.ip !== cur.ip) cmds.push('P' + want.ip);\n    if (want.kb && want.kb !== cur.kb && !(want.ip === 1 && want.kb === 500)) cmds.push('K' + want.kb);\n    if (want.bs && want.bh && (want.bs !== cur.bs || want.bh !== cur.bh || (want.bv && want.bv !== cur.bv)))\n        cmds.push('B' + Math.round(want.bs * 1000) + ',' + Math.round(want.bh * 1000) + (want.bv ? ',' + Math.round(want.bv * 1000) : ''));\n    node.status({ fill: 'yellow', shape: 'dot', text: ser + ': EEPROM was reset, restoring ' + cmds.join(' ') });\n    return [{ payload: cmds.join('\\n') + '\\n' }, null];\n}\nconst before = JSON.stringify(all[ser] || null);\nif (before !== JSON.stringify(cur)) {\n    all[ser] = cur;\n    global.set('teensySettings', all);\n    node.status({ fill: 'green', shape: 'dot', text: ser + ': ' + cur.sc + 'S, protocol ' + cur.ip + ', ' + cur.kb + ' kbit/s, bal ' + cur.bs + '/' + cur.bh });\n    return [null, { payload: JSON.stringify(all) }];\n}\nreturn null;\n",
     "outputs": 2,
     "outputLabels": [
       "commands to the Teensy",
@@ -2621,6 +2480,184 @@
     "y": 680,
     "wires": [
       []
+    ]
+  },
+  {
+    "id": "db39448bd109a9ac",
+    "type": "comment",
+    "z": "5fce40a6fa720026",
+    "name": "D-Bus values: one long-running reader instead of dbus -y polling (flow v26.48)",
+    "info": "The reader script is written by the flow at start (/data/home/nodered/.node-red/teslabms-dbus-reader.py) and runs as one Python process.\nEvery 5 s grid/battery (SolarEdge tab), every 10 s battery monitors (shunt SOC -> Teensy), every 30 s the DVCC limit.\nIf the process stops it is started again after 30 s.",
+    "x": 360,
+    "y": 1360,
+    "wires": []
+  },
+  {
+    "id": "1e729dcb418c2476",
+    "type": "inject",
+    "z": "5fce40a6fa720026",
+    "name": "start reader",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "5",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 160,
+    "y": 1400,
+    "wires": [
+      [
+        "0ebb70460179b9ca"
+      ]
+    ]
+  },
+  {
+    "id": "0ebb70460179b9ca",
+    "type": "function",
+    "z": "5fce40a6fa720026",
+    "name": "reader script",
+    "func": "return { payload: \"#!/usr/bin/env python3\\n# TeslaBMS dbus reader (written by the Node-RED flow, flow v26.48).\\n# ONE long-running process reads the few D-Bus values the flow needs, instead of starting\\n# `dbus -y` (a new Python process each time) many times per minute. Output: one JSON line per\\n# block, {\\\"k\\\": \\\"sys\\\"|\\\"bat\\\"|\\\"lim\\\", \\\"text\\\": \\\"<same text as the old dbus -y commands>\\\"}.\\nimport json, sys, time\\nimport dbus\\n\\nbus = dbus.SystemBus()\\nSYS_PATHS = ['/Ac/Grid/L1/Power', '/Ac/Grid/L2/Power', '/Ac/Grid/L3/Power', '/Dc/Battery/Power', '/Dc/Battery/Soc']\\n\\n\\ndef get(svc, path):\\n    try:\\n        v = bus.get_object(svc, path, introspect=False).GetValue(dbus_interface='com.victronenergy.BusItem')\\n    except Exception:\\n        return ''\\n    if isinstance(v, dbus.String):\\n        return \\\"'\\\" + str(v) + \\\"'\\\"\\n    if isinstance(v, (dbus.Array, dbus.Dictionary)):\\n        return '[]' if len(v) == 0 else str(list(v))\\n    if isinstance(v, dbus.Double):\\n        return repr(float(v))\\n    try:\\n        return str(int(v))\\n    except Exception:\\n        return str(v)\\n\\n\\ndef emit(k, text):\\n    sys.stdout.write(json.dumps({'k': k, 'text': text}) + '\\\\n')\\n    sys.stdout.flush()\\n\\n\\nbatteries, bat_listed, t = [], 0, 0\\nwhile True:\\n    start = time.monotonic()\\n    emit('sys', '\\\\n'.join(p + '=' + get('com.victronenergy.system', p) for p in SYS_PATHS))\\n    if t % 10 == 0:\\n        if time.monotonic() - bat_listed > 60 or not batteries:\\n            try:\\n                batteries = sorted(str(n) for n in bus.list_names() if str(n).startswith('com.victronenergy.battery'))\\n            except Exception:\\n                batteries = []\\n            bat_listed = time.monotonic()\\n        emit('bat', '\\\\n'.join('BAT|%s|%s|%s|%s' % (s, get(s, '/ProductName'), get(s, '/Soc'), get(s, '/Dc/0/Current'))\\n                              for s in batteries))\\n    if t % 30 == 0:\\n        emit('lim', 'LIM=' + get('com.victronenergy.settings', '/Settings/SystemSetup/MaxChargeVoltage'))\\n    t += 5\\n    time.sleep(max(0.5, 5 - (time.monotonic() - start)))\\n\" };",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 340,
+    "y": 1400,
+    "wires": [
+      [
+        "0671ddf8a07e8811"
+      ]
+    ]
+  },
+  {
+    "id": "0671ddf8a07e8811",
+    "type": "file",
+    "z": "5fce40a6fa720026",
+    "name": "write reader script",
+    "filename": "/data/home/nodered/.node-red/teslabms-dbus-reader.py",
+    "filenameType": "str",
+    "appendNewline": false,
+    "createDir": false,
+    "overwriteFile": "true",
+    "encoding": "utf8",
+    "x": 540,
+    "y": 1400,
+    "wires": [
+      [
+        "d6256d09a332ed2c"
+      ]
+    ]
+  },
+  {
+    "id": "d6256d09a332ed2c",
+    "type": "exec",
+    "z": "5fce40a6fa720026",
+    "name": "dbus reader (1 process)",
+    "command": "python3 -u /data/home/nodered/.node-red/teslabms-dbus-reader.py",
+    "addpay": "",
+    "append": "",
+    "useSpawn": "true",
+    "timer": "",
+    "winHide": false,
+    "oldrc": false,
+    "x": 760,
+    "y": 1400,
+    "wires": [
+      [
+        "26c98ccc3e83af76"
+      ],
+      [],
+      [
+        "8729598655ff3719"
+      ]
+    ]
+  },
+  {
+    "id": "8729598655ff3719",
+    "type": "delay",
+    "z": "5fce40a6fa720026",
+    "name": "restart after 30 s",
+    "pauseType": "delay",
+    "timeout": "30",
+    "timeoutUnits": "seconds",
+    "rate": "1",
+    "nbRateUnits": "1",
+    "rateUnits": "second",
+    "randomFirst": "1",
+    "randomLast": "5",
+    "randomUnits": "seconds",
+    "drop": false,
+    "allowrate": false,
+    "outputs": 1,
+    "x": 540,
+    "y": 1460,
+    "wires": [
+      [
+        "0ebb70460179b9ca"
+      ]
+    ]
+  },
+  {
+    "id": "26c98ccc3e83af76",
+    "type": "function",
+    "z": "5fce40a6fa720026",
+    "name": "route dbus values",
+    "outputs": 3,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "func": "// stdout of the reader comes in chunks: split into lines, one JSON object per line.\n// Outputs: 1 DVCC values, 2 shunt SOC -> Teensy, 3 SolarEdge controller (link).\nlet buf = (context.get('buf') || '') + String(msg.payload || '');\nconst lines = buf.split('\\n');\ncontext.set('buf', lines.pop().slice(-4000));\nconst out = [[], [], []];\nfor (const l of lines) {\n    let d;\n    try { d = JSON.parse(l); } catch (e) { continue; }\n    const i = { lim: 0, bat: 1, sys: 2 }[d.k];\n    if (i !== undefined) out[i].push({ payload: d.text });\n}\nnode.status({ fill: 'green', shape: 'dot', text: new Date().toLocaleTimeString() });\nreturn out;",
+    "x": 980,
+    "y": 1400,
+    "wires": [
+      [
+        "2d8c8e888dcd62c0"
+      ],
+      [
+        "f6c9062c9574f06e"
+      ],
+      [
+        "a2db53d5372f0f6b"
+      ]
+    ]
+  },
+  {
+    "id": "a2db53d5372f0f6b",
+    "type": "link out",
+    "z": "5fce40a6fa720026",
+    "name": "grid + battery -> SolarEdge",
+    "mode": "link",
+    "links": [
+      "ccf8f2548a325b60"
+    ],
+    "x": 1180,
+    "y": 1440,
+    "wires": []
+  },
+  {
+    "id": "ccf8f2548a325b60",
+    "type": "link in",
+    "z": "144e61c5c165398e",
+    "name": "grid + battery (dbus reader)",
+    "links": [
+      "a2db53d5372f0f6b"
+    ],
+    "x": 320,
+    "y": 100,
+    "wires": [
+      [
+        "9cf13cb388fbc2a0"
+      ]
     ]
   }
 ]

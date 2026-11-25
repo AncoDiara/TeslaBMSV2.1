@@ -20,7 +20,7 @@ Already have a Dashboard 2.0 base or theme? Point the page *Tesla BMS* at your o
 and delete the imported ones (Dashboard 2.0 uses one base).
 
 ## 4. Port and VE_SERVICE=ignore (automatic)
-At start and every 20 s the flow:
+At start and every 60 s the flow:
 - looks up the Teensys via `/dev/serial/by-id/` (name contains `Teensy`) and assigns them
   (node *Assign Teensy ports*, see below) through the *serial control* nodes (stable names, even if
   they become ttyACM1);
@@ -28,7 +28,22 @@ At start and every 20 s the flow:
   `/etc/udev/rules.d/zz-teslabms-teensy.rules` with `ENV{VE_SERVICE}="ignore"` for USB-ID `16c0:0483`;
 - adds a line to `/data/rc.local`, so the rule comes back after a firmware update
   (`/data` survives updates);
-- reconnects if no data has arrived for 60 s.
+- reconnects only if nothing at all (no JSON and no text) has arrived for 10 min, at most once per 10 min.
+
+## 4a. Quiet communication with the Teensy (flow v26.48)
+Node-RED does not keep sending commands to the Teensy: every byte would keep an open menu open
+(a technician at work, or stray bytes), and digits would be read as menu keys.
+- *JSON watchdog* (every 60 s): JSON arrives -> nothing. Text but no JSON for 3 min -> `J` once
+  (again at most every 10 min). Completely silent for 5 min -> warning, `J` at most every 15 min.
+- *shunt SOC -> Teensy* sends `S<soc>,<A>` only while JSON arrives (< 30 s old).
+- Firmware v26.37: a direct command (`J T S C K P B`) closes an open menu (not saved) and is then
+  executed; only real key presses keep a menu open.
+
+## 4b. D-Bus values: one reader process (flow v26.48)
+Grid/battery values (SolarEdge tab), the battery monitors (shunt SOC) and the DVCC limit are read by
+one long-running Python process (`teslabms-dbus-reader.py`, written by the flow at start in the
+Node-RED folder) instead of `dbus -y` commands; each `dbus -y` started a new Python process, which
+kept the Cerbo CPU at 100 %.
 
 The status under the node *Assign Teensy ports* shows the result. If it says `noperm`, Node-RED is not
 allowed to write to `/etc` or `/data`: then run `install-teensy-ignore.sh` once via SSH as root.

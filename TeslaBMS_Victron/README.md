@@ -201,8 +201,10 @@ Passive (bleed resistors in the Tesla module), per string, per cell:
 - only cells above **3.90 V** (menu `b` → `5`)
 - **start** when a cell is more than **15 mV** above the lowest cell in its string (menu `b` → `l`)
 - **stop** when it is only **5 mV** above it (menu `b` → `6`)
-- start/stop can also be set from the dashboard (block *Maintenance & updates* → *Balancing*), which
-  sends the direct command `B<start>,<stop>` (mV, e.g. `B7,3`) and saves it in the Teensy
+- from-voltage, start and stop can also be set from the dashboard (block *Maintenance & updates* →
+  *Balancing*), which sends the direct command `B<start>,<stop>,<from mV>` (e.g. `B7,3,3700`; the
+  from-voltage needs firmware v26.37, range 3300-4150 mV and below the cell over-voltage setpoint)
+  and saves it in the Teensy
 - strings cannot balance each other; incomplete strings are not balanced
 - the number of balancing cells is now really a count of cells (previously the sum of bitmasks);
   in the pack details a `*` after the voltage shows which cells are being bled

@@ -652,7 +652,22 @@ void loop()
 
   if (SERIALCONSOLE.available() > 0)
   {
-    lastMenuInput = millis();
+    int c = SERIALCONSOLE.peek();
+    if (menuload != 0 && isDirectCommand(c))
+    {
+      // A direct command (J/T/S/C/K/P/B, from Node-RED) while a menu is open: these letters are
+      // no menu keys, and the digits after them would be read as menu choices. Close the menu
+      // (changes not saved) and run the command. Without this, Node-RED's periodic commands
+      // kept the menu open for ever and the JSON output never came back (v26.37).
+      menuload = 0;
+      debug = (settings.JsonOut == 1) ? 0 : 1;
+      SERIALCONSOLE.println();
+      SERIALCONSOLE.println("Menu closed (direct command received, changes not saved)");
+    }
+    else if (c != '\r' && c != '\n')
+    {
+      lastMenuInput = millis();   // only real key presses keep the menu open
+    }
     menu();
   }
   // NEW: close the menu automatically after 2 minutes without input
@@ -3861,7 +3876,8 @@ case 'r':  //r for reset
 
   // NEW: direct commands outside the menu (used by the Node-RED dashboard):
   //   'J' = JSON output on (and save), 'T' = back to text output (and save)
-  //   'B<start>,<stop>' = balancing start / stop difference in mV (and save), e.g. "B7,3"
+  //   'B<start>,<stop>[,<from mV>]' = balancing start / stop difference in mV and optionally the
+  //                          balance-from cell voltage in mV (and save), e.g. "B7,3" or "B7,3,3700"
   //   'S<soc>,<current A>' = SOC (%) and battery current (A, + = charging) from outside, e.g. a Lynx shunt
   //                          on the GX via Node-RED. Used while fresh (< 60 s). Not saved.
   if (menuload == 0 && incomingByte == 'S')
@@ -3941,29 +3957,44 @@ case 'r':  //r for reset
   }
   if (menuload == 0 && incomingByte == 'B')
   {
+    // "B<start>,<stop>" or "B<start>,<stop>,<from mV>" (v26.37: optional balance-from voltage)
     long bStart = Serial.parseInt();
     long bStop = Serial.parseInt();
+    long bFrom = 0;
+    if (Serial.peek() == ',')
+    {
+      Serial.read();
+      bFrom = Serial.parseInt();
+    }
     SERIALCONSOLE.println();
-    if (bStop >= 2 && bStop <= 50 && bStart > bStop && bStart <= 100)
+    bool okDiff = (bStop >= 2 && bStop <= 50 && bStart > bStop && bStart <= 100);
+    bool okFrom = (bFrom == 0) || (bFrom >= 3300 && bFrom <= 4150 && bFrom < settings.OverVSetpoint * 1000.0f);
+    if (okDiff && okFrom)
     {
       settings.balanceStart = bStart / 1000.0f;
       settings.balanceHyst = bStop / 1000.0f;
+      if (bFrom) settings.balanceVoltage = bFrom / 1000.0f;
       EEPROM.put(0, settings);
       eepromWasReset = false;
-      SERIALCONSOLE.print("Balancing: start > "); SERIALCONSOLE.print(bStart);
+      SERIALCONSOLE.print("Balancing: from "); SERIALCONSOLE.print(settings.balanceVoltage * 1000, 0);
+      SERIALCONSOLE.print(" mV, start > "); SERIALCONSOLE.print(bStart);
       SERIALCONSOLE.print(" mV, down to "); SERIALCONSOLE.print(bStop); SERIALCONSOLE.println(" mV (saved)");
     }
     else
     {
-      SERIALCONSOLE.println("Balancing: invalid values (stop 2-50 mV, start > stop, max 100 mV) - not changed");
+      SERIALCONSOLE.println("Balancing: invalid values (stop 2-50 mV, start > stop, max 100 mV, from 3300-4150 mV and below cell over voltage) - not changed");
     }
     jsonTimer = 0; // send JSON immediately, so the dashboard shows the new values
   }
   if (menuload == 0 && (incomingByte == 'J' || incomingByte == 'T'))
   {
-    settings.JsonOut = (incomingByte == 'J') ? 1 : 0;
-    debug = (settings.JsonOut == 1) ? 0 : 1;
-    EEPROM.put(0, settings);
+    byte want = (incomingByte == 'J') ? 1 : 0;
+    debug = (want == 1) ? 0 : 1;
+    if (settings.JsonOut != want)   // only write the EEPROM when it really changes
+    {
+      settings.JsonOut = want;
+      EEPROM.put(0, settings);
+    }
     SERIALCONSOLE.println();
     SERIALCONSOLE.println(settings.JsonOut ? "JSON output on" : "JSON output off (text)");
     jsonTimer = 0; // send immediately
@@ -4613,6 +4644,12 @@ void outputdebug()
   {
     outputstate = 0;
   }
+}
+
+// Letters of the direct commands (Node-RED / dashboard). None of them is a menu key.
+bool isDirectCommand(int c)
+{
+  return c == 'J' || c == 'T' || c == 'S' || c == 'C' || c == 'K' || c == 'P' || c == 'B';
 }
 
 void resetwdog()
