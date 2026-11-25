@@ -144,7 +144,8 @@ lowvolt, temp), `sc` cells in series per string, `ps` parallel strings, `er` 1 =
 (Teensy 4 after a firmware update) and no setting has been sent since.
 
 The header of the BMS page shows the uptime and the reason of the last start; restarts seen in the
-last 24 h are shown in red (count, time and reason).
+last 24 h are shown in red (count, time and reason). The restart list lives in memory and starts empty after a
+Node-RED restart.
 
 ### Settings guard (restore after a Teensy 4 firmware update)
 A Teensy 4.0 loses its EEPROM settings at every upload. The function *Settings guard* in each tab
