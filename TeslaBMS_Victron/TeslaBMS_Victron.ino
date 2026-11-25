@@ -105,6 +105,7 @@ struct CanLogEntry { uint32_t id; uint8_t ext; uint8_t len; uint32_t count; uint
 CanLogEntry canLog[CANLOG_SIZE];
 uint8_t canLogUsed = 0;
 uint32_t lgKeepAliveMs = 0;   // last 0x305 'keep alive' from the inverter (LG RESU protocol)
+uint32_t infoCurrentMs = 0;   // last 'I' command (current for information only, e.g. from the SolarEdge; v26.40)
 uint32_t lastCurrentMs = 0;   // last current measurement received over CAN (Lynx / shunt)
 bool socFromVoltage = false;  // SOC calculated from the cell voltage (no current measurement)
 float extSoc = -1.0f;         // SOC from outside over USB ('S' command, e.g. Lynx shunt on the GX via Node-RED)
@@ -1824,6 +1825,18 @@ void updateSOC() {
 
   SOC = ((ampsecond * 0.27777777777778) / (settings.CAP * settings.Pstrings * 1000)) * 100;
 
+  // v26.40: no current measurement for 30 s -> current 0 (it used to keep the last value for ever,
+  // e.g. one 'S' after a restart left 7.0 A standing). An 'I' command keeps it alive.
+  {
+    bool measured = (lastCurrentMs != 0 && millis() - lastCurrentMs < 30000);
+    bool info = (infoCurrentMs != 0 && millis() - infoCurrentMs < 30000);
+    if (settings.cursens == Canbus && !measured && !info && currentact != 0)
+    {
+      currentact = 0;
+      lowpassFilter.input(0);   // filter forgets the old value as well
+    }
+  }
+
   // NEW: current via CAN but none received for 30 s (e.g. on a SolarEdge without Lynx/shunt):
   // the coulomb count would freeze, so take the SOC from the cell voltage instead.
   socFromVoltage = (settings.voltsoc == 1 || settings.cursens == 0 ||
@@ -2201,6 +2214,9 @@ void printJson()
   SERIALCONSOLE.print(",\"dcl\":"); jsonFloat(discurrent * 0.1f, 1);
   SERIALCONSOLE.print(",\"v\":"); jsonFloat(bms.getPackVoltage(), 3);
   SERIALCONSOLE.print(",\"i\":"); jsonFloat(currentact / 1000.0f, 1);
+  // source of the current: 0 none, 1 measured (shunt over CAN / 'S'), 2 information ('I', e.g. SolarEdge)
+  SERIALCONSOLE.print(",\"is\":");
+  SERIALCONSOLE.print((lastCurrentMs != 0 && millis() - lastCurrentMs < 30000) ? 1 : ((infoCurrentMs != 0 && millis() - infoCurrentMs < 30000) ? 2 : 0));
   SERIALCONSOLE.print(",\"soc\":"); SERIALCONSOLE.print(SOC);
   SERIALCONSOLE.print(",\"so\":"); SERIALCONSOLE.print(bms.getStringsOnline());
   SERIALCONSOLE.print(",\"se\":"); SERIALCONSOLE.print(bms.getStringsExpected());
@@ -3910,6 +3926,19 @@ case 'r':  //r for reset
     }
   }
   //   'C<cells>' = cells in series per string (and save): C6 = 24 V, C12 = 48 V; strings are counted again
+  //   'I<current A>' = battery current from outside FOR INFORMATION (+ = charging), e.g. calculated from the
+  //                    SolarEdge battery power. Shown and sent to the inverter/GX; the SOC keeps coming from
+  //                    the cell voltage (no coulomb counting on an estimate). Used while fresh (< 30 s).
+  if (menuload == 0 && incomingByte == 'I')
+  {
+    float amps = Serial.parseFloat();
+    if (amps > -3000.0f && amps < 3000.0f && settings.cursens == Canbus &&
+        (lastCurrentMs == 0 || millis() - lastCurrentMs > 30000))   // a real shunt always wins
+    {
+      infoCurrentMs = millis();
+      currentact = amps * 1000.0f;   // mA, no filter (the source is already an average)
+    }
+  }
   if (menuload == 0 && incomingByte == 'C')
   {
     long c = Serial.parseInt();
@@ -4684,7 +4713,7 @@ int32_t coldChargeLimit()
 // Letters of the direct commands (Node-RED / dashboard). None of them is a menu key.
 bool isDirectCommand(int c)
 {
-  return c == 'J' || c == 'T' || c == 'S' || c == 'C' || c == 'K' || c == 'P' || c == 'B';
+  return c == 'J' || c == 'T' || c == 'S' || c == 'I' || c == 'C' || c == 'K' || c == 'P' || c == 'B';
 }
 
 void resetwdog()

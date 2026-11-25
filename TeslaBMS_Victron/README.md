@@ -245,6 +245,11 @@ flashing. On a **Teensy 4.0** the EEPROM is emulated in the program flash, and a
 it: after every firmware update the Teensy 4 starts with the defaults (JSON `"er": 1`). The
 dashboard remembers the settings of each Teensy (by USB serial number) and sends them back
 automatically (cells in series, CAN protocol, CAN speed, balancing), see the Node-RED README.
+**Current without a shunt (v26.40).** A measured current (Lynx/shunt over CAN or `S<soc>,<A>`) that is
+not refreshed for 30 s now falls back to 0 A (before, the last value stayed for ever). `I<A>` gives a
+current for information only (shown, passed to the inverter/GX; the SOC stays from the cell voltage); a
+real shunt always wins. JSON `"is"`: 0 none, 1 measured, 2 information.
+
 **Charging in the cold (v26.39).** NCA cells must only be charged slowly below ~10 °C (lithium
 plating). The charge current PER STRING follows the coldest temperature sensor, linear between:
 `UnderTSetpoint` (−10 °C) 0 A · −5 °C 2.5 A · 0 °C 5 A · 5 °C 12 A · `ChargeTSetpoint` (10 °C) full.

@@ -147,6 +147,11 @@ The header of the BMS page shows the uptime and the reason of the last start; re
 last 24 h are shown in red (count, time and reason). The restart list lives in memory and starts empty after a
 Node-RED restart.
 
+### Battery current without a shunt
+Without a Lynx/shunt/BMV on the GX, *shunt SOC -> Teensy* calculates the battery current from the
+SolarEdge (battery power / pack voltage, + = charging) and sends it as `I<A>` (firmware v26.40+). The
+Current tile shows the source. `TESLABMS_SOC_SOURCE=off` switches both off.
+
 ### Settings guard (restore after a Teensy 4 firmware update)
 A Teensy 4.0 loses its EEPROM settings at every upload. The function *Settings guard* in each tab
 saves the settings of each Teensy (by USB serial number) in
