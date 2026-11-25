@@ -134,8 +134,17 @@ jobs:
           NOTES="TeslaBMS_Victron firmware ${{ steps.ver.outputs.fw }}, dashboard flow ${{ steps.ver.outputs.flow }}, for Teensy 3.2 (SimpBMS V2) and Teensy 4.0, built with arduino-cli and the official Teensy core from commit ${GITHUB_SHA::7}.
           Flash from the Cerbo GX: python3 /data/teslabms/teensy_flash.py --latest
           Or with the Arduino IDE / Teensy Loader on a PC."
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" release/* --clobber
-          else
-            gh release create "$TAG" release/* --title "TeslaBMS_Victron firmware ${{ steps.ver.outputs.fw }} / dashboard ${{ steps.ver.outputs.flow }}" --notes "$NOTES" --target "$GITHUB_SHA" --latest
-          fi
+          # GitHub sometimes answers 502 during the upload: retry. A half-finished (draft) release of an
+          # earlier attempt is removed first, then the release is made again in one go.
+          for try in 1 2 3 4; do
+            for id in $(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=20" --jq ".[] | select(.draft and .name == \"TeslaBMS_Victron firmware ${{ steps.ver.outputs.fw }} / dashboard ${{ steps.ver.outputs.flow }}\") | .id"); do
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$id" || true
+            done
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              gh release upload "$TAG" release/* --clobber && exit 0
+            else
+              gh release create "$TAG" release/* --title "TeslaBMS_Victron firmware ${{ steps.ver.outputs.fw }} / dashboard ${{ steps.ver.outputs.flow }}" --notes "$NOTES" --target "$GITHUB_SHA" --latest && exit 0
+            fi
+            echo "attempt $try failed, retrying in $((try * 20)) s"; sleep $((try * 20))
+          done
+          exit 1
