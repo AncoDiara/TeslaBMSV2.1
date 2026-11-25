@@ -245,6 +245,12 @@ flashing. On a **Teensy 4.0** the EEPROM is emulated in the program flash, and a
 it: after every firmware update the Teensy 4 starts with the defaults (JSON `"er": 1`). The
 dashboard remembers the settings of each Teensy (by USB serial number) and sends them back
 automatically (cells in series, CAN protocol, CAN speed, balancing), see the Node-RED README.
+**Charging in the cold (v26.39).** NCA cells must only be charged slowly below ~10 °C (lithium
+plating). The charge current PER STRING follows the coldest temperature sensor, linear between:
+`UnderTSetpoint` (−10 °C) 0 A · −5 °C 2.5 A · 0 °C 5 A · 5 °C 12 A · `ChargeTSetpoint` (10 °C) full.
+With 12 strings: 30 A at −5 °C, 60 A at 0 °C, 144 A at 5 °C. Discharging is not limited. JSON `"cold": 1`
+while the limit is active (shown in the CCL tile). Existing settings: ChargeTSetpoint 0 → 10 °C once.
+
 The JSON output contains the uptime (`up`, seconds) and the reason of the last start (`rr`:
 power, pin, watchdog, software, lockup, lowvolt, temp); the dashboard shows both and counts restarts.
 Direct command `C<cells>` (e.g. `C12`) sets the cells in series per string (6 = 24 V, 12 = 48 V).

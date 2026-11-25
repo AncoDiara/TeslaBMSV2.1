@@ -141,6 +141,7 @@ float cvlActual = 0.0f;       // V, the CVL sent to Victron
 unsigned long cvlTimer = 0;
 bool overVoltLatch = false;   // highest cell >= OverVSetpoint: CCL = 0 (chargers off)
 bool eepromWasReset = false;  // set at the one-time EEPROM reset (message at startup)
+bool coldLimited = false;     // CCL limited by the cold charge curve (v26.39, JSON "cold")
 unsigned long jsonTimer = 0;
 #define JSON_INTERVAL 5000UL  // ms between two JSON lines (Node-RED dashboard)
 unsigned long lastMenuInput = 0;
@@ -316,7 +317,7 @@ void loadSettings()
   settings.CellGap = 0.2f; //max delta between high and low cell
   settings.OverTSetpoint = 65.0f;
   settings.UnderTSetpoint = -10.0f;
-  settings.ChargeTSetpoint = 0.0f;
+  settings.ChargeTSetpoint = 10.0f;   // full charge current from this temperature (v26.39, see coldChargeLimit)
   settings.triptime = 500;//mS of delay before counting over or undervoltage
   settings.DisTSetpoint = 40.0f;
   settings.WarnToff = 5.0f; //temp offset before raising warning
@@ -500,6 +501,12 @@ void setup()
   {
     // v26.34: cell readings below 1.0 V cannot be real (sensor fault); only when still the old default
     if (fabsf(settings.IgnoreVolt - 0.5f) < 0.001f) settings.IgnoreVolt = 1.0f;
+    settings.version = EEPROM_VERSION_VIC10;
+  }
+  if (settings.version == EEPROM_VERSION_VIC10)
+  {
+    // v26.39: charging in the cold follows a curve (coldChargeLimit); full current from 10 C (was 0 C)
+    if (settings.ChargeTSetpoint < 6.0f) settings.ChargeTSetpoint = 10.0f;
     settings.version = EEPROM_VERSION;
     EEPROM.put(0, settings);
   }
@@ -2190,6 +2197,7 @@ void printJson()
     SERIALCONSOLE.print("]");
   }
   SERIALCONSOLE.print(",\"ccl\":"); jsonFloat(chargecurrent * 0.1f, 1);
+  SERIALCONSOLE.print(",\"cold\":"); SERIALCONSOLE.print(coldLimited ? 1 : 0);   // CCL limited by cold (v26.39)
   SERIALCONSOLE.print(",\"dcl\":"); jsonFloat(discurrent * 0.1f, 1);
   SERIALCONSOLE.print(",\"v\":"); jsonFloat(bms.getPackVoltage(), 3);
   SERIALCONSOLE.print(",\"i\":"); jsonFloat(currentact / 1000.0f, 1);
@@ -3529,7 +3537,7 @@ case 'r':  //r for reset
             break;
         }
         SERIALCONSOLE.println();
-        SERIALCONSOLE.print("9 - Charge Current derate Low: ");
+        SERIALCONSOLE.print("9 - Full charge current from (below: cold curve down to UnderT): ");
         SERIALCONSOLE.print(settings.ChargeTSetpoint);
         SERIALCONSOLE.println(" C");
         if (settings.chargertype > 0)
@@ -4469,11 +4477,7 @@ void currentlimit()
     {
       if (chargecurrentlimit == false)
       {
-        //Temperature based///
-        if (bms.getLowTemperature() < settings.ChargeTSetpoint)
-        {
-          chargecurrent = chargecurrent - map(bms.getLowTemperature(), settings.UnderTSetpoint, settings.ChargeTSetpoint, settings.chargecurrentmax, 0);
-        }
+        // Temperature: see coldChargeLimit() below (v26.39)
         //Voltagee based/// (only without CVL control; with CVL control the CVL takes care of it)
         if (settings.CVLControl == 1)
         {
@@ -4496,11 +4500,7 @@ void currentlimit()
       }
       else
       {
-        //Temperature based///
-        if (bms.getLowTemperature() < settings.ChargeTSetpoint)
-        {
-          chargecurrent = chargecurrent - map(bms.getLowTemperature(), settings.UnderTSetpoint, settings.ChargeTSetpoint, settings.chargecurrent2max, 0);
-        }
+        // Temperature: see coldChargeLimit() below (v26.39)
         //Voltagee based/// (only without CVL control; with CVL control the CVL takes care of it)
         if (settings.CVLControl == 1)
         {
@@ -4536,6 +4536,13 @@ void currentlimit()
   if (bms.getLowCellVolt() < settings.UnderVSetpoint && chargecurrent > settings.chargecurrentend)
   {
     chargecurrent = settings.chargecurrentend;
+  }
+  // Charging in the cold (v26.39): NCA cells must only be charged slowly below ~10 C (lithium
+  // plating). Limit per string by the COLDEST sensor, see coldChargeLimit().
+  {
+    int32_t cold = coldChargeLimit();
+    coldLimited = (cold >= 0 && chargecurrent > cold);
+    if (coldLimited) chargecurrent = cold;
   }
 
   // Total for the battery = per string x number of strings.
@@ -4647,6 +4654,31 @@ void outputdebug()
   {
     outputstate = 0;
   }
+}
+
+// Maximum charge current PER STRING (0.1 A) for the coldest temperature sensor, or -1 = no limit.
+// Points (linear in between), for a Tesla module string of ~230 Ah:
+//   UnderTSetpoint (-10 C) 0 A | -5 C 2.5 A (0.01 C) | 0 C 5 A (0.02 C) | 5 C 12 A (0.05 C) | ChargeTSetpoint (10 C) full
+int32_t coldChargeLimit()
+{
+  float t = bms.getLowTemperature();
+  float tFull = settings.ChargeTSetpoint, tZero = settings.UnderTSetpoint;
+  if (t >= tFull) return -1;
+  if (t <= tZero) return 0;
+  const float pt[5][2] = { { tZero, 0 }, { -5.0f, 25 }, { 0.0f, 50 }, { 5.0f, 120 }, { tFull, (float)settings.chargecurrentmax } };
+  float lastT = pt[0][0], lastA = pt[0][1];
+  for (int i = 1; i < 5; i++)
+  {
+    if (pt[i][0] <= lastT) continue;          // point outside the set range (tZero/tFull changed): skip
+    if (t <= pt[i][0])
+    {
+      float a = lastA + (pt[i][1] - lastA) * (t - lastT) / (pt[i][0] - lastT);
+      if (a > settings.chargecurrentmax) a = settings.chargecurrentmax;
+      return (int32_t)a;
+    }
+    lastT = pt[i][0]; lastA = pt[i][1];
+  }
+  return -1;
 }
 
 // Letters of the direct commands (Node-RED / dashboard). None of them is a menu key.
