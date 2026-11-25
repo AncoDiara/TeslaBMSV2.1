@@ -124,6 +124,16 @@ The CVL tile shows the CVL calculated by the BMS (Teensy). Below it: the
 a read round (ms), `lo`/`hi` + `loid`/`hiid` lowest/highest cell, `tlo`/`thi` temperatures,
 `ovl` overvoltage latch, `mw`/`ma` module warning/alarm, `alm`/`wrn` alarm bytes of 0x35A,
 `mod[]` per module: `a` address, `s` string, `on`, `v`, `c[6]` cells, `t[2]` temperatures, `b` balance mask.
+`sc` cells in series per string, `ps` parallel strings, `er` 1 = EEPROM was reset to the defaults
+(Teensy 4 after a firmware update) and no setting has been sent since.
+
+### Settings guard (restore after a Teensy 4 firmware update)
+A Teensy 4.0 loses its EEPROM settings at every upload. The function *Settings guard* in each tab
+saves the settings of each Teensy (by USB serial number) in
+`/data/home/nodered/.node-red/teslabms-teensy-settings.json`: cells in series, CAN protocol, CAN
+speed and balancing start/stop. When a Teensy reports `"er": 1`, the guard sends them back once
+(at most once a minute). **Maintenance & updates** has buttons **24 V (6S)** / **48 V (12S)**
+(double click) to set the cells in series by hand.
 
 ## Updates from the dashboard (firmware and the dashboard itself)
 

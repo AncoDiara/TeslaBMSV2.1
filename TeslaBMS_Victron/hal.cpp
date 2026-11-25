@@ -176,25 +176,12 @@ void halLowVoltageStart(void (*callback)())
 static FlexCAN_T4<BMS_CAN_BUS, RX_SIZE_16, TX_SIZE_64> t4can;
 static bool t4canStarted = false;
 
-// Receive buffer, filled from the CAN interrupt (we do not use events(), so FlexCAN_T4
-// calls the receive function directly in the interrupt). 256 messages: VE.Can carries
-// ~400 frames/s and the module read round blocks the loop for ~0.7 s.
-#define BMS_CAN_RXQ 256
-static BmsCanMsg rxq[BMS_CAN_RXQ];
-static volatile uint16_t rxHead = 0, rxTail = 0;
+// NO interrupts (polling): with the FIFO/mailbox interrupts of FlexCAN_T4 enabled, the Teensy 4.0
+// stopped running (no output at all) as soon as it was on a bus where other devices acknowledge
+// its messages (SolarEdge + GX), while it ran fine without a bus. Polling is simple and robust;
+// the receive FIFO holds 6 messages, so during the ~0.7 s module read round some received
+// messages can be lost (fine for the inverter protocols; the shunt current comes over USB).
 static volatile uint32_t rxLost = 0;
-
-static void canRxIsr(const CAN_message_t &c)
-{
-  uint16_t next = (uint16_t)((rxHead + 1) % BMS_CAN_RXQ);
-  if (next == rxTail) { rxLost++; return; }  // full: drop the newest
-  BmsCanMsg &m = rxq[rxHead];
-  m.id = c.id;
-  m.len = c.len > 8 ? 8 : c.len;
-  m.ext = c.flags.extended ? 1 : 0;
-  memcpy(m.buf, c.buf, 8);
-  rxHead = next;
-}
 
 void BmsCan::begin(uint32_t baud)
 {
@@ -205,8 +192,8 @@ void BmsCan::begin(uint32_t baud)
     t4can.setMaxMB(16);
     t4can.enableFIFO();
     t4can.setFIFOFilter(ACCEPT_ALL);   // standard and extended identifiers
-    t4can.enableFIFOInterrupt();
-    t4can.onReceive(canRxIsr);
+    t4can.enableFIFOInterrupt(false);   // polling, see above
+    t4can.enableMBInterrupts(false);    // also no transmit-mailbox interrupts
     t4canStarted = true;
   }
   else
@@ -222,11 +209,12 @@ void BmsCan::end()
 
 bool BmsCan::read(BmsCanMsg &m)
 {
-  if (rxTail == rxHead) return false;
-  noInterrupts();
-  m = rxq[rxTail];
-  rxTail = (uint16_t)((rxTail + 1) % BMS_CAN_RXQ);
-  interrupts();
+  CAN_message_t c;
+  if (!t4can.read(c)) return false;
+  m.id = c.id;
+  m.len = c.len > 8 ? 8 : c.len;
+  m.ext = c.flags.extended ? 1 : 0;
+  memcpy(m.buf, c.buf, 8);
   canRx++;
   return true;
 }

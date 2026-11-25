@@ -238,10 +238,16 @@ Open the menu with `s` in the serial monitor (115200 baud).
 - `m` – **Modules & Strings** (new): overview per string, `a` auto-detect, `f` search again, `r` renumber, `t` alarm delay, `j` JSON output, `v` CVL control, `s` CCL/DCL scaling
 - `q` – back / save (EEPROM)
 
-Settings live in the Teensy's EEPROM and survive flashing. **v26.9 resets them once to the defaults**
+Settings live in the Teensy's EEPROM. On a **Teensy 3.2** that is separate memory and survives
+flashing. On a **Teensy 4.0** the EEPROM is emulated in the program flash, and an upload erases
+it: after every firmware update the Teensy 4 starts with the defaults (JSON `"er": 1`). The
+dashboard remembers the settings of each Teensy (by USB serial number) and sends them back
+automatically (cells in series, CAN protocol, CAN speed, balancing), see the Node-RED README.
+Direct command `C<cells>` (e.g. `C12`) sets the cells in series per string (6 = 24 V, 12 = 48 V).
+**v26.9 resets them once to the defaults**
 (only the CAN speed is kept, so the connection to the GX stays up). Defaults are set for a Victron
 system controlled via DVCC: ESS mode on, no charger type (no car-charger messages on CAN),
-current from a Victron Lynx/shunt via CAN (PGN 127508), 6 cells per string, 4.10 V charge voltage,
+current from a Victron Lynx/shunt via CAN (PGN 127508), 12 cells per string (48 V; since v26.36), 4.10 V charge voltage,
 25 A per string. At startup the serial monitor shows the most important settings, with a warning
 when a value is illogical. The charge voltage used by the CVL control is always capped at
 `OverVSetpoint` − 50 mV.

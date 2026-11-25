@@ -328,7 +328,7 @@ void loadSettings()
   settings.logLevel = 2;
   settings.CAP = 230; //Ah PER STRING (Tesla 6S74P module approx. 230Ah - check your type)
   settings.Pstrings = 1; // number of strings in parallel
-  settings.Scells = 6;//Cells in series per string: 6 = 24V (1 Tesla module), 12 = 48V (2 modules)
+  settings.Scells = 12;//Cells in series per string: 6 = 24V (1 Tesla module), 12 = 48V (2 modules); default 48 V
   settings.StoreVsetpoint = 3.8; // V storage mode charge max
   settings.discurrentmax = 250; // max discharge current in 0.1A PER STRING (25 A)
   settings.DisTaper = 0.3f; //V offset to bring in discharge taper to Zero Amps at settings.DischVsetpoint
@@ -2101,6 +2101,9 @@ unsigned long canSlowTimer = 0;
         error counter, ef error bits seen in the last 5 s (ESR1: 0x2000 ACK, 0x1000 CRC, 0x800 form,
         0x400 stuff, 0x4000/0x8000 bit, 0x200 TX warning, 0x100 RX warning), ee polls with an error,
         tx/tf sent/refused, rx received, rl lost (receive buffer full), kb speed in kbit/s
+    sc/ps  cells in series per string / strings in parallel
+    er  1 = the EEPROM was reset to the defaults at this start (e.g. a Teensy 4 flash erases it),
+        until a setting is sent again (C, P, K, B); Node-RED then restores the last known settings
     ip  CAN protocol to the inverter (0 Victron, 1 LG RESU LV for SolarEdge RWS)
     ka  LG protocol: seconds since the last 'keep alive' 0x305 of the inverter (-1 = never)
     cx  LG protocol: received CAN messages [id, ext, count, "last data hex"] (max 16 identifiers)
@@ -2134,6 +2137,9 @@ void printJson()
   SERIALCONSOLE.print(",\"sx\":"); SERIALCONSOLE.print(socExternal ? 1 : 0);      // 1 = SOC from outside (Lynx on the GX via Node-RED)
   SERIALCONSOLE.print(",\"sm\":"); SERIALCONSOLE.print(storagemode);   // 1 = storage mode (CVL = StoreVsetpoint x Scells)
   SERIALCONSOLE.print(",\"ip\":"); SERIALCONSOLE.print(settings.InverterProto);   // 0 Victron, 1 LG RESU LV (SolarEdge)
+  SERIALCONSOLE.print(",\"sc\":"); SERIALCONSOLE.print(settings.Scells);          // cells in series per string
+  SERIALCONSOLE.print(",\"ps\":"); SERIALCONSOLE.print(settings.Pstrings);        // strings in parallel
+  SERIALCONSOLE.print(",\"er\":"); SERIALCONSOLE.print(eepromWasReset ? 1 : 0);   // 1 = settings were reset to the defaults at this start (until set again)
   {
     BmsCanStats cs;
     bmsCan.stats(cs, true);   // error flags: since the previous JSON line (5 s)
@@ -3876,6 +3882,22 @@ case 'r':  //r for reset
       }
     }
   }
+  //   'C<cells>' = cells in series per string (and save): C6 = 24 V, C12 = 48 V; strings are counted again
+  if (menuload == 0 && incomingByte == 'C')
+  {
+    long c = Serial.parseInt();
+    SERIALCONSOLE.println();
+    if (c >= 6 && c <= 96 && (c % 6) == 0)
+    {
+      settings.Scells = (int)c;
+      applyTopology();
+      EEPROM.put(0, settings);
+      eepromWasReset = false;
+      SERIALCONSOLE.print("Cells in series: "); SERIALCONSOLE.print(c); SERIALCONSOLE.println(" (saved)");
+    }
+    else SERIALCONSOLE.println("Cells in series: invalid value (C6, C12, ... multiples of 6) - not changed");
+    jsonTimer = 0;
+  }
   //   'K<kbit>' = CAN speed (and save): K250 (VE.Can), K500 (CAN-bus BMS / LG RESU), also K125, K1000
   if (menuload == 0 && incomingByte == 'K')
   {
@@ -3887,6 +3909,7 @@ case 'r':  //r for reset
       bmsCan.end();
       bmsCan.begin(settings.canSpeed);
       EEPROM.put(0, settings);
+      eepromWasReset = false;
       SERIALCONSOLE.print("CAN speed: "); SERIALCONSOLE.print(k); SERIALCONSOLE.println(" kbit/s (saved)");
     }
     else SERIALCONSOLE.println("CAN speed: invalid value (K125, K250, K500, K1000) - not changed");
@@ -3902,6 +3925,7 @@ case 'r':  //r for reset
       settings.InverterProto = (uint8_t)p;
       canLogUsed = 0;
       lgKeepAliveMs = 0;
+      eepromWasReset = false;
       if (p == 1 && settings.canSpeed != 500000)
       {
         // LG RESU LV always talks 500 kbit/s
@@ -3925,6 +3949,7 @@ case 'r':  //r for reset
       settings.balanceStart = bStart / 1000.0f;
       settings.balanceHyst = bStop / 1000.0f;
       EEPROM.put(0, settings);
+      eepromWasReset = false;
       SERIALCONSOLE.print("Balancing: start > "); SERIALCONSOLE.print(bStart);
       SERIALCONSOLE.print(" mV, down to "); SERIALCONSOLE.print(bStop); SERIALCONSOLE.println(" mV (saved)");
     }
