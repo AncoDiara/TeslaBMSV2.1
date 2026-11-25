@@ -2338,6 +2338,23 @@ void lgResuCan()
   // bytes 2-3: alarms (meaning of the bits unknown): 0
   bmsCan.write(msg);
   delay(2);
+
+  // Battery name, the same frames as in Victron mode (v26.41): a real LG RESU also sends 0x35E
+  // (manufacturer), and a Victron GX on the same bus uses 0x35E + 0x370/0x371 as product name
+  // ("Claude Tesla BMS" instead of "CAN-bus BMS battery"). The SolarEdge ignores them.
+  msg.id  = 0x35E;
+  msg.len = 8;
+  for (int i = 0; i < 8; i++) msg.buf[i] = bmsname[i];
+  bmsCan.write(msg);
+  delay(2);
+  msg.id  = 0x370;
+  for (int i = 0; i < 8; i++) msg.buf[i] = batteryName[i];
+  bmsCan.write(msg);
+  delay(2);
+  msg.id  = 0x371;
+  for (int i = 0; i < 8; i++) msg.buf[i] = batteryName[8 + i];
+  bmsCan.write(msg);
+  delay(2);
 }
 
 void VEcan() //communication with Victron system over CAN
