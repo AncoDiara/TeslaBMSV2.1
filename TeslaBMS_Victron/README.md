@@ -245,6 +245,8 @@ flashing. On a **Teensy 4.0** the EEPROM is emulated in the program flash, and a
 it: after every firmware update the Teensy 4 starts with the defaults (JSON `"er": 1`). The
 dashboard remembers the settings of each Teensy (by USB serial number) and sends them back
 automatically (cells in series, CAN protocol, CAN speed, balancing), see the Node-RED README.
+The JSON output contains the uptime (`up`, seconds) and the reason of the last start (`rr`:
+power, pin, watchdog, software, lockup, lowvolt, temp); the dashboard shows both and counts restarts.
 Direct command `C<cells>` (e.g. `C12`) sets the cells in series per string (6 = 24 V, 12 = 48 V).
 **v26.9 resets them once to the defaults**
 (only the CAN speed is kept, so the connection to the GX stays up). Defaults are set for a Victron
