@@ -51,6 +51,7 @@ void halOutWrite(uint8_t pin, uint8_t value);
 uint8_t halOutRead(uint8_t pin);
 
 void halPrintResetReason(Stream &out);
+const char *halResetCode();              // reason of the last start: power, pin, watchdog, software, lockup, lowvolt, temp, other
 void halWatchdogStart();               // about 5.5 s
 void halWatchdogKick();
 void halLowVoltageStart(void (*callback)()); // callback on low supply voltage (3.2 only; no-op on 4.x)

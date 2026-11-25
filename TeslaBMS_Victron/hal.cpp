@@ -127,6 +127,20 @@ void halPrintResetReason(Stream &out)
   if (RCM_SRS0 & RCM_SRS0_LVD)       out.println("Low-voltage Detect Reset");
 }
 
+const char *halResetCode()
+{
+  static const char *code = nullptr;     // determined once, at the first call (in setup)
+  if (code) return code;
+  if      (RCM_SRS0 & RCM_SRS0_WDOG)    code = "watchdog";
+  else if (RCM_SRS1 & RCM_SRS1_LOCKUP)  code = "lockup";
+  else if (RCM_SRS1 & RCM_SRS1_SW)      code = "software";
+  else if (RCM_SRS0 & RCM_SRS0_POR)     code = "power";
+  else if (RCM_SRS0 & RCM_SRS0_LVD)     code = "lowvolt";
+  else if (RCM_SRS0 & RCM_SRS0_PIN)     code = "pin";
+  else                                  code = "other";
+  return code;
+}
+
 void halWatchdogStart()
 {
   noInterrupts();                                         // don't allow interrupts while setting up WDOG
@@ -236,8 +250,23 @@ uint32_t BmsCan::rxOverflows()
   return rxLost;
 }
 
+const char *halResetCode()
+{
+  static const char *code = nullptr;     // determined once, before halPrintResetReason clears SRC_SRSR
+  if (code) return code;
+  uint32_t s = SRC_SRSR;
+  if      (s & (SRC_SRSR_WDOG_RST_B | SRC_SRSR_WDOG3_RST_B)) code = "watchdog";
+  else if (s & SRC_SRSR_LOCKUP_SYSRESETREQ)                code = "software";
+  else if (s & SRC_SRSR_TEMPSENSE_RST_B)                   code = "temp";
+  else if (s & SRC_SRSR_IPP_USER_RESET_B)                  code = "pin";
+  else if (s & SRC_SRSR_IPP_RESET_B)                       code = "power";
+  else                                                     code = "other";
+  return code;
+}
+
 void halPrintResetReason(Stream &out)
 {
+  halResetCode();                      // remember the reason before the register is cleared
   uint32_t s = SRC_SRSR;
   if (s & SRC_SRSR_LOCKUP_SYSRESETREQ) out.println("Software Reset / Core Lockup");
   if (s & SRC_SRSR_IPP_RESET_B)        out.println("Power-on Reset");

@@ -557,6 +557,7 @@ void setup()
   Serial.println();
   Serial.println("Reason for last Reset: ");
 
+  halResetCode();   // remember the reason of this start (JSON "rr")
   halPrintResetReason(Serial);
   Serial.println();
   ///////////////////
@@ -2146,7 +2147,9 @@ void printJson()
   SERIALCONSOLE.print("{\"fw\":\"");
   SERIALCONSOLE.print(FW_YEAR); SERIALCONSOLE.print("."); SERIALCONSOLE.print(FW_BUILD & 0xFF);
   SERIALCONSOLE.print("\",\"hw\":\""); SERIALCONSOLE.print(BOARD_HW);   // Teensy model: T32, T40, T41
-  SERIALCONSOLE.print("\",\"st\":"); SERIALCONSOLE.print(bmsstatus);
+  SERIALCONSOLE.print("\",\"rr\":\""); SERIALCONSOLE.print(halResetCode());   // reason of the last start
+  SERIALCONSOLE.print("\",\"up\":"); SERIALCONSOLE.print(millis() / 1000UL);    // uptime in seconds
+  SERIALCONSOLE.print(",\"st\":"); SERIALCONSOLE.print(bmsstatus);
   SERIALCONSOLE.print(",\"cvl\":"); jsonFloat(cvlActual, 2);
   SERIALCONSOLE.print(",\"sv\":"); SERIALCONSOLE.print(socFromVoltage ? 1 : 0);   // 1 = SOC from cell voltage (no current measurement)
   SERIALCONSOLE.print(",\"sx\":"); SERIALCONSOLE.print(socExternal ? 1 : 0);      // 1 = SOC from outside (Lynx on the GX via Node-RED)
