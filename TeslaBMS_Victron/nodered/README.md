@@ -56,7 +56,12 @@ Which Teensy is which:
   names two tabs can never end up reading the same Teensy.
 - Safety net: if the saved assignment is wrong (the test Teensy reports clearly more modules than
   the main one), it is corrected automatically.
-- Assign again (e.g. other Teensy as main battery): delete that file via SSH and restart Node-RED.
+- The saved main Teensy gone for **more than 2 minutes** (replaced, broken): another Teensy takes over the main
+  role (the one with the most modules; with one Teensy: that one) and this is saved. A short absence (restart,
+  firmware update of the main Teensy) never swaps the roles.
+- Fix the main Teensy by hand: tab variable `TESLABMS_MAIN_TEENSY` (tab *Tesla BMS*) = its USB serial number
+  (the number in `/dev/serial/by-id/usb-Teensyduino_USB_Serial_<number>-if00`); empty = automatic.
+- Assign again from scratch: delete the roles file via SSH and restart Node-RED.
 
 Firmware updates always flash exactly the Teensy of that tab (`teensy_flash.py --port ...`), and
 never two at the same time.
